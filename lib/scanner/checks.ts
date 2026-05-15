@@ -515,13 +515,13 @@ export function checkSpelling(textContent: string): CheckResult {
 export function checkContactForm($: $Type): CheckResult {
   const forms = $("form")
   if (forms.length === 0) return info("contact-form", "Contact Form Submission", "Functionality", "No <form> elements found on the page.")
-  let candidate: cheerio.Cheerio<any> | null = null
+  let candidateEl: any = null
   forms.each((_, el) => {
     const html = $(el).html()?.toLowerCase() || ""
-    if (/email|contact|name|message|phone/.test(html)) candidate = $(el)
+    if (/email|contact|name|message|phone/.test(html)) candidateEl = el
   })
-  if (!candidate) return info("contact-form", "Contact Form Submission", "Functionality", "No contact-like form detected.")
-  const hasSubmit = candidate.find('button[type="submit"], input[type="submit"]').length > 0
+  if (!candidateEl) return info("contact-form", "Contact Form Submission", "Functionality", "No contact-like form detected.")
+  const hasSubmit = $(candidateEl).find('button[type="submit"], input[type="submit"]').length > 0
   if (!hasSubmit)
     return warn(
       "contact-form",
