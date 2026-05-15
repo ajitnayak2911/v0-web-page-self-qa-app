@@ -213,15 +213,56 @@ export function checkHeadingHierarchy(headings: HeadingInfo[]): CheckResult {
 }
 
 export function checkMainSubheading(headings: HeadingInfo[]): CheckResult {
-  const hasH2 = headings.some((h) => h.level === 2)
-  if (hasH2) return pass("main-subheading", "Main Subheading", "Content", "H2 subheading present")
-  return warn("main-subheading", "Main Subheading", "Content", "low", "No H2 subheading found")
+  const h2 = headings.find((h) => h.level === 2)
+  if (!h2) return warn("main-subheading", "Main Subheading", "Content", "low", "No H2 subheading found")
+  const text = h2.text
+  const issues: string[] = []
+  // sentence case = first letter uppercase, mostly lowercase otherwise (allow proper nouns)
+  const words = text.split(/\s+/).filter(Boolean)
+  const upperWords = words.filter((w, i) => i > 0 && /^[A-Z][a-z]+/.test(w)).length
+  // Mostly all-caps title-case detection
+  const titleCased = words.filter((w, i) => i > 0 && /^[A-Z]/.test(w) && !/^(I|US|UK|EU|UI|UX|AI|API|SEO|PDF|FAQ)$/.test(w)).length
+  if (titleCased > Math.floor(words.length / 2)) issues.push("not in sentence case (looks like title case)")
+  if (!/[.!?]$/.test(text.trim())) issues.push("does not end with a period")
+  if (text.length > 90) issues.push(`exceeds 90 characters (${text.length})`)
+  if (issues.length === 0)
+    return pass("main-subheading", "Main Subheading", "Content", "H2 follows guidelines", text)
+  return warn(
+    "main-subheading",
+    "Main Subheading",
+    "Content",
+    "low",
+    `H2 issues: ${issues.join("; ")}`,
+    "Main subhead should be sentence case, end with a period, and be ≤ 90 chars (PR exceptions allowed).",
+    text,
+  )
 }
 
 export function checkBodySubheadings(headings: HeadingInfo[]): CheckResult {
   const subs = headings.filter((h) => h.level >= 3).length
-  if (subs > 0) return pass("body-subheadings", "Body Subheadings", "Content", `${subs} sub-headings found`)
+  if (subs > 0) return pass("body-subheadings", "Body Subheadings", "Content", `${subs} sub-headings (H3–H6) found`)
   return info("body-subheadings", "Body Subheadings", "Content", "No H3+ subheadings on page.")
+}
+
+export function checkSubheadStyling($: $Type): CheckResult {
+  // Subheads should not be styled as <strong>/<b> in body copy
+  const strongLikeHeadings: string[] = []
+  $("p > strong:only-child, p > b:only-child").each((_, el) => {
+    const t = $(el).text().trim()
+    if (t && t.length < 120 && !/[.!?]$/.test(t)) strongLikeHeadings.push(t.slice(0, 80))
+  })
+  if (strongLikeHeadings.length === 0)
+    return pass("subhead-styling", "Subhead Styling", "Content", "No paragraphs styled as bold-only subheads detected")
+  return warn(
+    "subhead-styling",
+    "Subhead Styling",
+    "Content",
+    "low",
+    `${strongLikeHeadings.length} paragraph(s) appear to be styled as <strong> subheads`,
+    "Subheads in body copy should be h3/h4/h5/h6 — not <strong>.",
+    undefined,
+    strongLikeHeadings.slice(0, 10),
+  )
 }
 
 // ---------- URL ----------
@@ -248,10 +289,28 @@ export function checkUrlConvention(url: string): CheckResult {
 }
 
 export function checkUrlLength(url: string): CheckResult {
+  const u = new URL(url)
+  const segments = u.pathname.split("/").filter(Boolean)
+  const wordTokens = u.pathname
+    .split(/[\/\-_]/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 0)
+  const wordCount = wordTokens.length
   const len = url.length
-  if (len > 100)
-    return warn("url-length", "URL Length", "SEO", "low", `URL is long (${len} chars)`, "Aim for under 100 characters.")
-  return pass("url-length", "URL Length", "SEO", `URL length ${len} chars`)
+  const issues: string[] = []
+  if (wordCount > 7) issues.push(`URL has ${wordCount} words (recommended ≤ 7)`)
+  if (len > 100) issues.push(`URL is ${len} characters (recommended ≤ 100)`)
+  if (issues.length)
+    return warn(
+      "url-length",
+      "URL Length",
+      "SEO",
+      "low",
+      issues.join("; "),
+      "Keep URLs short — under 7 words and 100 characters.",
+      u.pathname,
+    )
+  return pass("url-length", "URL Length", "SEO", `URL length ${len} chars, ${wordCount} word(s), ${segments.length} segment(s)`)
 }
 
 // ---------- LINKS ----------
@@ -576,9 +635,28 @@ export function checkRegionLanguage($: $Type): CheckResult {
 }
 
 export function checkEyebrowText($: $Type): CheckResult {
-  const eyebrow = $('[class*="eyebrow" i]').first().text().trim()
-  if (!eyebrow) return info("eyebrow", "Eyebrow Text", "Content", "No eyebrow text component detected.")
-  return pass("eyebrow", "Eyebrow Text", "Content", "Eyebrow text present", eyebrow)
+  const eyebrows: string[] = []
+  $('[class*="eyebrow" i]').each((_, el) => {
+    const t = $(el).text().trim()
+    if (t) eyebrows.push(t)
+  })
+  if (eyebrows.length === 0) return info("eyebrow", "Eyebrow Text", "Content", "No eyebrow text component detected.")
+  const notUpper = eyebrows.filter((t) => {
+    const letters = t.replace(/[^A-Za-z]/g, "")
+    return letters && letters !== letters.toUpperCase()
+  })
+  if (notUpper.length === 0)
+    return pass("eyebrow", "Eyebrow Text", "Content", `${eyebrows.length} eyebrow(s) — all in ALL CAPS`, eyebrows.join(" | "))
+  return warn(
+    "eyebrow",
+    "Eyebrow Text",
+    "Content",
+    "low",
+    `${notUpper.length}/${eyebrows.length} eyebrow(s) are not in ALL CAPS`,
+    "Eyebrow text should be in ALL CAPITAL LETTERS.",
+    undefined,
+    notUpper.slice(0, 10),
+  )
 }
 
 export function checkCtaText($: $Type): CheckResult {
@@ -686,6 +764,35 @@ export function checkGatedFormDownload($: $Type): CheckResult {
   if (form > 0 && dl > 0)
     return pass("gated-form", "Gated Form Download CTA", "Functionality", `${form} form(s) and ${dl} download(s) detected`)
   return info("gated-form", "Gated Form Download CTA", "Functionality", "No gated download pattern detected.")
+}
+
+export function checkGatedPdfPath(links: LinkInfo[]): CheckResult {
+  const pdfs = links.filter((l) => l.type === "pdf")
+  if (pdfs.length === 0) return info("gated-pdf", "Secure PDFs Under /gated/", "Technical", "No PDF links found.")
+  // Heuristic: confidential / secure keywords near link text imply gated requirement
+  const suspicious = pdfs.filter((l) => {
+    const t = (l.text || "").toLowerCase()
+    const isConfidential = /confidential|secure|private|restricted|internal|gated/.test(t)
+    const inGated = /\/gated\//i.test(l.href)
+    return isConfidential && !inGated
+  })
+  if (suspicious.length === 0)
+    return pass(
+      "gated-pdf",
+      "Secure PDFs Under /gated/",
+      "Technical",
+      `${pdfs.length} PDF(s) reviewed — no confidential PDFs outside /gated/ detected`,
+    )
+  return warn(
+    "gated-pdf",
+    "Secure PDFs Under /gated/",
+    "Technical",
+    "medium",
+    `${suspicious.length} confidential-looking PDF(s) are not under /gated/`,
+    "Move secure/confidential PDFs into a /gated/ folder path.",
+    undefined,
+    suspicious.slice(0, 10).map((l) => l.href),
+  )
 }
 
 export function checkContentFormatting($: $Type): CheckResult {
