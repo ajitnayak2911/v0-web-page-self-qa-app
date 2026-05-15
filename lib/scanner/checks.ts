@@ -244,6 +244,67 @@ export function checkBodySubheadings(headings: HeadingInfo[]): CheckResult {
   return info("body-subheadings", "Body Subheadings", "Content", "No H3+ subheadings on page.")
 }
 
+// Dummy link checker (mirrors the standalone Python validator)
+const DUMMY_LINK_IGNORE_TEXTS = new Set([
+  "skip to main content",
+  "contact us",
+  "do not sell my personal information",
+])
+
+function isDummyHref(href: string | undefined | null): boolean {
+  if (!href) return true
+  const h = href.trim().toLowerCase()
+  return (
+    h === "#" ||
+    h.startsWith("#") ||
+    h === "javascript:void(0)" ||
+    h === "javascript:void(0);" ||
+    h.startsWith("javascript:")
+  )
+}
+
+function cleanDummyLinkText(text: string): string {
+  if (!text) return "[NO TEXT]"
+  const trimmed = text.trim()
+  const lower = trimmed.toLowerCase()
+  for (const prefix of ["resource", "article"]) {
+    if (lower.startsWith(prefix)) return trimmed.slice(prefix.length).trim() || "[NO TEXT]"
+  }
+  return trimmed
+}
+
+export function checkDummyLinks($: $Type): CheckResult {
+  const dummies: { index: number; text: string; href: string }[] = []
+  let count = 1
+
+  $("a").each((_, el) => {
+    const $el = $(el)
+    const href = $el.attr("href") || ""
+    const rawText = $el.text().trim()
+    const text = cleanDummyLinkText(rawText)
+
+    if (DUMMY_LINK_IGNORE_TEXTS.has(text.trim().toLowerCase())) return
+    if (!isDummyHref(href)) return
+
+    dummies.push({ index: count, text, href: href || "(empty)" })
+    count += 1
+  })
+
+  if (dummies.length === 0)
+    return pass("dummy-links", "Dummy Links", "Functionality", "No dummy links found on the page")
+
+  return warn(
+    "dummy-links",
+    "Dummy Links",
+    "Functionality",
+    "medium",
+    `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", etc.)`,
+    "Replace placeholder hrefs with real destinations or remove the link entirely.",
+    undefined,
+    dummies.slice(0, 50).map((d) => `[${d.index}] ${d.text} → href=${d.href}`),
+  )
+}
+
 // Whitelist of approved badge patterns (mirrors the standalone Python validator)
 const BADGE_PATTERNS: { tag: string; requiredClasses: string[]; requiredAttrs: Record<string, string> }[] = [
   { tag: "span", requiredClasses: ["badge", "badge-light", "w-fit"], requiredAttrs: { slot: "title" } },
