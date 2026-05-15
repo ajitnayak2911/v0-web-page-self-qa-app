@@ -244,6 +244,204 @@ export function checkBodySubheadings(headings: HeadingInfo[]): CheckResult {
   return info("body-subheadings", "Body Subheadings", "Content", "No H3+ subheadings on page.")
 }
 
+// ---------- LINK BEHAVIOR AUDIT (mirrors standalone Python "Link Behavior Audit") ----------
+const LBA_SPECIAL_EXTERNAL_PATHS = ["/fr/", "/de/", "/jp/", "/next"]
+const LBA_IGNORE_SELECTORS = [
+  "footer#footer-section",
+  "nav#main-nav",
+  "div.promo-bar",
+  "div.contact-us__bottom",
+  "div.ot-sdk-row",
+  "div#onetrust-consent-sdk",
+  "div#onetrust-group-container",
+  "div.ot-pc-footer-logo",
+  "a.ot-cookie-policy-link",
+  "div.recaptcha-disclaimer",
+  "div.recaptcha-disclaimer.reducefont",
+  "a.skip-link[href='#main-content']",
+]
+const LBA_IGNORE_HREF_PATTERNS = [
+  "https://policies.google.com/privacy",
+  "https://policies.google.com/terms",
+  "javascript:void(0)",
+  "/contact-us",
+]
+const LBA_SOCIAL_DOMAINS = ["twitter.com", "facebook.com", "linkedin.com"]
+const LBA_DOC_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".ppt", ".pptx"]
+
+export function checkLinkBehaviorAudit(
+  $: $Type,
+  baseUrl: URL,
+  validatedLinks: LinkInfo[],
+): CheckResult {
+  // Build status map from already-validated links so we don't issue extra requests
+  const statusByHref = new Map<string, LinkInfo>()
+  for (const l of validatedLinks) if (!statusByHref.has(l.href)) statusByHref.set(l.href, l)
+
+  // Combined selector used to filter out links inside ignored regions
+  const ignoreCombined = LBA_IGNORE_SELECTORS.join(", ")
+
+  type Row = {
+    text: string
+    opensIn: "New Tab" | "Same Tab"
+    kind: "Internal" | "External"
+    status: number | "Error" | "Unchecked"
+    health: string
+    expected: "OK" | "FAIL"
+    reason: string
+    href: string
+  }
+
+  const rows: Row[] = []
+
+  $("a[href]").each((_, el) => {
+    const $el = $(el)
+
+    // Skip if inside any ignored container (or the element itself matches an ignore selector)
+    try {
+      if ($el.closest(ignoreCombined).length > 0) return
+    } catch {
+      // If a selector is unsupported by cheerio, fall through
+    }
+
+    let href = ($el.attr("href") || "").trim()
+    if (!href) return
+    if (href.startsWith("tel:") || href.startsWith("mailto:") || href.startsWith("#main-content")) return
+    if (LBA_IGNORE_HREF_PATTERNS.some((p) => href.includes(p))) return
+
+    let absolute: URL
+    try {
+      absolute = new URL(href, baseUrl)
+    } catch {
+      return
+    }
+    const absHref = absolute.toString()
+
+    const linkText =
+      $el.text().trim() ||
+      $el.attr("aria-label")?.trim() ||
+      $el.attr("title")?.trim() ||
+      absHref
+
+    let isExternal = !!absolute.hostname && absolute.hostname !== baseUrl.hostname
+    for (const sp of LBA_SPECIAL_EXTERNAL_PATHS) {
+      if (absolute.pathname.startsWith(sp) && absolute.hostname === baseUrl.hostname) {
+        isExternal = true
+        break
+      }
+    }
+
+    let opensIn: "New Tab" | "Same Tab" = $el.attr("target") === "_blank" ? "New Tab" : "Same Tab"
+    if (LBA_SOCIAL_DOMAINS.some((d) => href.includes(d))) opensIn = "New Tab"
+
+    const isDocument = LBA_DOC_EXTENSIONS.some((ext) => absHref.toLowerCase().endsWith(ext))
+
+    let expected: "OK" | "FAIL"
+    let reason: string
+
+    if (isDocument) {
+      isExternal = true
+      if (opensIn === "New Tab") {
+        expected = "OK"
+        reason = "Document: must open External in New Tab"
+      } else {
+        expected = "FAIL"
+        reason = "Document opened wrong (should be New Tab)"
+      }
+    } else if (isExternal) {
+      if (opensIn === "New Tab") {
+        expected = "OK"
+        reason = "External OK"
+      } else {
+        expected = "FAIL"
+        reason = "External should open New Tab"
+      }
+    } else {
+      if (opensIn === "Same Tab") {
+        expected = "OK"
+        reason = "Internal OK"
+      } else {
+        expected = "FAIL"
+        reason = "Internal should open Same Tab"
+      }
+    }
+
+    // Reuse validated status if available
+    const validated = statusByHref.get(absHref)
+    let status: number | "Error" | "Unchecked" = "Unchecked"
+    let health = "Not checked"
+    if (validated) {
+      if (typeof validated.status === "number" && validated.status > 0) {
+        status = validated.status
+        if (status >= 200 && status < 300) health = "OK"
+        else if (status >= 300 && status < 400) health = "Redirect"
+        else if (status >= 400 && status < 500) health = "Client Error"
+        else if (status >= 500 && status < 600) health = "Server Error"
+        else health = "Unknown"
+      } else if (validated.error || validated.ok === false) {
+        status = "Error"
+        health = "Unreachable"
+      }
+    }
+
+    rows.push({
+      text: linkText.slice(0, 120),
+      opensIn,
+      kind: isExternal ? "External" : "Internal",
+      status,
+      health,
+      expected,
+      reason,
+      href: absHref,
+    })
+  })
+
+  if (rows.length === 0)
+    return info(
+      "link-behavior-audit",
+      "Link Behavior Audit",
+      "Links",
+      "No auditable links found after applying ignore rules.",
+    )
+
+  const failures = rows.filter((r) => r.expected === "FAIL")
+  const unhealthy = rows.filter(
+    (r) => r.health === "Client Error" || r.health === "Server Error" || r.health === "Unreachable",
+  )
+
+  const evidence = rows
+    .slice(0, 80)
+    .map(
+      (r) =>
+        `[${r.expected === "OK" ? "PASS" : "FAIL"}] ${r.kind} | ${r.opensIn} | ${r.status} ${r.health} | "${r.text}" -> ${r.href} -- ${r.reason}`,
+    )
+
+  if (failures.length === 0 && unhealthy.length === 0)
+    return pass(
+      "link-behavior-audit",
+      "Link Behavior Audit",
+      "Links",
+      `${rows.length} link(s) audited - all targets correct and healthy`,
+      undefined,
+    )
+
+  const sev: Severity = failures.length > 0 ? "medium" : "low"
+  const msgs: string[] = []
+  if (failures.length) msgs.push(`${failures.length} target-attribute mismatch(es)`)
+  if (unhealthy.length) msgs.push(`${unhealthy.length} unhealthy link(s)`)
+
+  return warn(
+    "link-behavior-audit",
+    "Link Behavior Audit",
+    "Links",
+    sev,
+    `${msgs.join("; ")} across ${rows.length} audited link(s)`,
+    "Internal links should open in same tab; external + document links in new tab. Fix 4xx/5xx/unreachable links.",
+    undefined,
+    evidence,
+  )
+}
+
 // Dummy link checker (mirrors the standalone Python validator)
 const DUMMY_LINK_IGNORE_TEXTS = new Set([
   "skip to main content",

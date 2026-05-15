@@ -89,6 +89,7 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
     C.checkUrlConvention(url.toString()),
     C.checkUrlLength(url.toString()),
     C.checkDummyLinks($),
+    C.checkLinkBehaviorAudit($, baseUrl, links),
     C.checkBrokenLinks(links),
     C.checkRedirects(links),
     C.checkExternalNewTab(links),
