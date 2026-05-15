@@ -85,6 +85,7 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
     C.checkMainSubheading(headings),
     C.checkBodySubheadings(headings),
     C.checkSubheadStyling($),
+    C.checkBadgeAllCaps($),
     C.checkUrlConvention(url.toString()),
     C.checkUrlLength(url.toString()),
     C.checkBrokenLinks(links),

@@ -244,6 +244,72 @@ export function checkBodySubheadings(headings: HeadingInfo[]): CheckResult {
   return info("body-subheadings", "Body Subheadings", "Content", "No H3+ subheadings on page.")
 }
 
+// Whitelist of approved badge patterns (mirrors the standalone Python validator)
+const BADGE_PATTERNS: { tag: string; requiredClasses: string[]; requiredAttrs: Record<string, string> }[] = [
+  { tag: "span", requiredClasses: ["badge", "badge-light", "w-fit"], requiredAttrs: { slot: "title" } },
+  { tag: "span", requiredClasses: ["badge", "badge-light"], requiredAttrs: {} },
+  { tag: "span", requiredClasses: ["badge", "badge-dark", "self-baseline"], requiredAttrs: { slot: "title" } },
+  { tag: "span", requiredClasses: ["badge", "badge-dark"], requiredAttrs: { slot: "title" } },
+]
+
+function isAllCapsText(text: string): boolean {
+  const letters = text.match(/[A-Za-z]/g)
+  if (!letters || letters.length === 0) return false
+  return letters.every((ch) => ch === ch.toUpperCase())
+}
+
+export function checkBadgeAllCaps($: $Type): CheckResult {
+  const matches: { text: string; location: string; allCaps: boolean }[] = []
+
+  $("span").each((_, el) => {
+    const $el = $(el)
+    const classes = ($el.attr("class") || "").split(/\s+/).filter(Boolean)
+    const classSet = new Set(classes)
+
+    const matched = BADGE_PATTERNS.some((p) => {
+      if (!p.requiredClasses.every((c) => classSet.has(c))) return false
+      for (const [attr, value] of Object.entries(p.requiredAttrs)) {
+        if ($el.attr(attr) !== value) return false
+      }
+      return true
+    })
+    if (!matched) return
+
+    const text = $el.text().trim()
+    const identifier = $el.attr("id") || classes.join(" ") || "span"
+    matches.push({ text, location: `<span class="${identifier}">`, allCaps: isAllCapsText(text) })
+  })
+
+  if (matches.length === 0)
+    return info(
+      "badge-caps",
+      "Badge Text ALL CAPS",
+      "Content",
+      "No approved badge patterns found on the page.",
+    )
+
+  const violations = matches.filter((m) => !m.allCaps && m.text.length > 0)
+  if (violations.length === 0)
+    return pass(
+      "badge-caps",
+      "Badge Text ALL CAPS",
+      "Content",
+      `${matches.length} approved badge(s) found — all in ALL CAPS`,
+      matches.map((m) => m.text).filter(Boolean).join(" | "),
+    )
+
+  return warn(
+    "badge-caps",
+    "Badge Text ALL CAPS",
+    "Content",
+    "medium",
+    `${violations.length}/${matches.length} approved badge(s) are not in ALL CAPS`,
+    "Approved badges (span.badge.badge-light / badge-dark variants) must have their text in ALL CAPITAL LETTERS.",
+    undefined,
+    violations.slice(0, 20).map((v) => `${v.location} → "${v.text}"`),
+  )
+}
+
 export function checkSubheadStyling($: $Type): CheckResult {
   // Subheads should not be styled as <strong>/<b> in body copy
   const strongLikeHeadings: string[] = []
