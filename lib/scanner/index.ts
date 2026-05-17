@@ -112,7 +112,7 @@ export async function runScan(
     C.checkLinkRelSecurity(links),
     C.checkImageAlt(images),
     C.checkTitleMatchesH1($),
-    C.checkTrademarkSuperscript(fetched.html),
+    C.checkTrademarkSuperscript($, fetched.html),
     C.checkSpelling(bodyText),
     C.checkContactForm($),
     C.checkInternalSearch($),

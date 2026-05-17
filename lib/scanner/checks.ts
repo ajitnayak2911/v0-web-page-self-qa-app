@@ -951,18 +951,46 @@ export function checkTitleMatchesH1($: $Type): CheckResult {
   )
 }
 
-export function checkTrademarkSuperscript(html: string): CheckResult {
-  // Find ™ or ® not inside <sup>
-  const stripped = html.replace(/<sup[\s\S]*?<\/sup>/gi, "")
-  const tmCount = (stripped.match(/[™®]/g) || []).length
-  if (tmCount === 0) return info("trademark", "Trademark Superscript", "Content", "No ™/® symbols outside <sup> found.")
+export function checkTrademarkSuperscript($: $Type, html: string): CheckResult {
+  // Count total ™ and ® symbols in the page
+  const allSymbols = (html.match(/[™®]/g) || []).length
+  
+  // Count symbols inside <sup> tags (properly formatted)
+  let insideSup = 0
+  $("sup").each((_, el) => {
+    const text = $(el).text()
+    insideSup += (text.match(/[™®]/g) || []).length
+  })
+  
+  // Symbols outside <sup> = violations
+  const outsideSup = allSymbols - insideSup
+  
+  if (allSymbols === 0)
+    return info(
+      "trademark",
+      "Trademark Superscript",
+      "Content",
+      "No trademark symbols (™/®) found on the page.",
+    )
+  
+  if (outsideSup === 0)
+    return pass(
+      "trademark",
+      "Trademark Superscript",
+      "Content",
+      `${allSymbols} trademark symbol(s) found — all properly wrapped in <sup>`,
+      `${insideSup} symbol(s) in <sup> tags`,
+    )
+  
   return warn(
     "trademark",
     "Trademark Superscript",
     "Content",
     "low",
-    `${tmCount} trademark symbol(s) not wrapped in <sup>`,
+    `${outsideSup}/${allSymbols} trademark symbol(s) not wrapped in <sup>`,
     "Wrap ™ and ® in <sup> for proper typography.",
+    undefined,
+    [`Total: ${allSymbols}`, `In <sup>: ${insideSup}`, `Not in <sup>: ${outsideSup}`],
   )
 }
 
