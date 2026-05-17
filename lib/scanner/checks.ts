@@ -444,39 +444,68 @@ export function checkLinkBehaviorAudit(
 
 // ---------- COPY LINK / SHARE BUTTON VALIDATION ----------
 // Detects share/copy-link buttons (Alpine.js webShare pattern or similar) and validates configuration
-const COPY_LINK_SVG_PATH =
-  "M14.666 6C14.666 3.79086" // partial match for the share icon SVG path
 
 export function checkCopyLinkButtons($: $Type): CheckResult {
-  const copyButtons: { location: string; hasWebShare: boolean; hasShareBind: boolean; hasSvg: boolean }[] = []
+  const copyButtons: {
+    location: string
+    type: "webShare" | "social" | "generic"
+    hasShareBind: boolean
+    hasSvg: boolean
+    platform?: string
+  }[] = []
 
-  // Pattern 1: Alpine.js webShare buttons (x-data="webShare" x-bind="ShareLinkButton")
-  $('button[x-data="webShare"]').each((_, el) => {
+  // Pattern 1: Alpine.js webShare button (the copy-link button)
+  $("button").each((_, el) => {
     const $el = $(el)
-    const hasShareBind = $el.attr("x-bind") === "ShareLinkButton"
-    const hasSvg = $el.find("svg").length > 0
-    const id = $el.attr("id") || $el.attr("class") || "button"
-    copyButtons.push({ location: `<button x-data="webShare" ${id}>`, hasWebShare: true, hasShareBind, hasSvg })
+    const xData = $el.attr("x-data")
+    const xBind = $el.attr("x-bind")
+    
+    if (xData === "webShare") {
+      const hasShareBind = xBind === "ShareLinkButton"
+      const hasSvg = $el.find("svg").length > 0
+      copyButtons.push({
+        location: `<button x-data="webShare" x-bind="${xBind || "(none)"}">`,
+        type: "webShare",
+        hasShareBind,
+        hasSvg,
+      })
+    }
   })
 
-  // Pattern 2: Buttons with share-related classes/attributes
-  $('button[class*="share" i], button[class*="copy-link" i], button[aria-label*="share" i], button[aria-label*="copy" i]').each(
-    (_, el) => {
-      const $el = $(el)
-      // Skip if already matched by Pattern 1
-      if ($el.attr("x-data") === "webShare") return
-      const hasSvg = $el.find("svg").length > 0
-      const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "button"
-      copyButtons.push({ location: `<button ${id}>`, hasWebShare: false, hasShareBind: false, hasSvg })
-    },
-  )
-
-  // Pattern 3: Links styled as copy/share buttons
-  $('a[class*="share" i], a[class*="copy-link" i], a[aria-label*="share" i], a[aria-label*="copy" i]').each((_, el) => {
+  // Pattern 2: Social share buttons (twitter, linkedin, facebook)
+  $("button").each((_, el) => {
     const $el = $(el)
+    const xData = $el.attr("x-data")
+    const xBind = $el.attr("x-bind")
+    
+    if (xData && /^(twitter|linkedin|facebook)$/i.test(xData)) {
+      const expectedBind = `${xData.charAt(0).toUpperCase() + xData.slice(1).toLowerCase()}ShareButton`
+      const hasCorrectBind = xBind?.includes("ShareButton") || false
+      const hasSvg = $el.find("svg").length > 0
+      copyButtons.push({
+        location: `<button x-data="${xData}" x-bind="${xBind || "(none)"}">`,
+        type: "social",
+        hasShareBind: hasCorrectBind,
+        hasSvg,
+        platform: xData,
+      })
+    }
+  })
+
+  // Pattern 3: Generic share buttons by class/aria
+  $('button[class*="share" i], button[aria-label*="share" i], button[aria-label*="copy" i]').each((_, el) => {
+    const $el = $(el)
+    const xData = $el.attr("x-data")
+    // Skip if already matched by Pattern 1 or 2
+    if (xData === "webShare" || /^(twitter|linkedin|facebook)$/i.test(xData || "")) return
     const hasSvg = $el.find("svg").length > 0
-    const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "anchor"
-    copyButtons.push({ location: `<a ${id}>`, hasWebShare: false, hasShareBind: false, hasSvg })
+    const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "button"
+    copyButtons.push({
+      location: `<button ${id}>`,
+      type: "generic",
+      hasShareBind: true, // assume OK for generic
+      hasSvg,
+    })
   })
 
   if (copyButtons.length === 0)
@@ -487,21 +516,30 @@ export function checkCopyLinkButtons($: $Type): CheckResult {
       "No copy-link or share buttons detected on the page.",
     )
 
-  // Validate: Alpine webShare buttons must have x-bind="ShareLinkButton" and contain an SVG icon
-  const alpineButtons = copyButtons.filter((b) => b.hasWebShare)
-  const misconfigured = alpineButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
+  // Validate webShare buttons must have x-bind="ShareLinkButton" and contain an SVG icon
+  const webShareButtons = copyButtons.filter((b) => b.type === "webShare")
+  const socialButtons = copyButtons.filter((b) => b.type === "social")
+  
+  const misconfiguredWebShare = webShareButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
+  const misconfiguredSocial = socialButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
 
-  const evidence = copyButtons.map(
-    (b) =>
-      `${b.location} | webShare=${b.hasWebShare} | ShareLinkButton=${b.hasShareBind} | SVG=${b.hasSvg}`,
-  )
+  const evidence = copyButtons.map((b) => {
+    const status = b.type === "webShare" 
+      ? (b.hasShareBind && b.hasSvg ? "OK" : "ISSUE") 
+      : b.type === "social"
+        ? (b.hasShareBind && b.hasSvg ? "OK" : "ISSUE")
+        : "OK"
+    return `[${status}] ${b.type}${b.platform ? ` (${b.platform})` : ""} | ${b.location} | bind=${b.hasShareBind} | svg=${b.hasSvg}`
+  })
 
-  if (misconfigured.length === 0)
+  const totalMisconfigured = misconfiguredWebShare.length + misconfiguredSocial.length
+
+  if (totalMisconfigured === 0)
     return pass(
       "copy-link-buttons",
       "Copy Link / Share Buttons",
       "Functionality",
-      `${copyButtons.length} share/copy-link button(s) found and properly configured`,
+      `${copyButtons.length} share button(s) found: ${webShareButtons.length} copy-link, ${socialButtons.length} social — all properly configured`,
       evidence.join("\n"),
     )
 
@@ -510,8 +548,8 @@ export function checkCopyLinkButtons($: $Type): CheckResult {
     "Copy Link / Share Buttons",
     "Functionality",
     "medium",
-    `${misconfigured.length}/${alpineButtons.length} Alpine webShare button(s) may be misconfigured`,
-    "Ensure buttons with x-data=\"webShare\" also have x-bind=\"ShareLinkButton\" and contain an SVG icon for the copy/share action to work.",
+    `${totalMisconfigured} share button(s) may be misconfigured (missing x-bind or SVG icon)`,
+    "Ensure Alpine share buttons have correct x-bind attribute and contain an SVG icon.",
     undefined,
     evidence,
   )
