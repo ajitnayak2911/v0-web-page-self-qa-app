@@ -98,6 +98,7 @@ export async function runScan(
     C.checkBodySubheadings(headings),
     C.checkSubheadStyling($),
     C.checkBadgeAllCaps($),
+    C.checkCopyLinkButtons($),
     C.checkUrlConvention(url.toString()),
     C.checkUrlLength(url.toString()),
     C.checkDummyLinks($),

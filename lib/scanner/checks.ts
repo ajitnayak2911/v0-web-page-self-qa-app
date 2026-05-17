@@ -442,6 +442,81 @@ export function checkLinkBehaviorAudit(
   )
 }
 
+// ---------- COPY LINK / SHARE BUTTON VALIDATION ----------
+// Detects share/copy-link buttons (Alpine.js webShare pattern or similar) and validates configuration
+const COPY_LINK_SVG_PATH =
+  "M14.666 6C14.666 3.79086" // partial match for the share icon SVG path
+
+export function checkCopyLinkButtons($: $Type): CheckResult {
+  const copyButtons: { location: string; hasWebShare: boolean; hasShareBind: boolean; hasSvg: boolean }[] = []
+
+  // Pattern 1: Alpine.js webShare buttons (x-data="webShare" x-bind="ShareLinkButton")
+  $('button[x-data="webShare"]').each((_, el) => {
+    const $el = $(el)
+    const hasShareBind = $el.attr("x-bind") === "ShareLinkButton"
+    const hasSvg = $el.find("svg").length > 0
+    const id = $el.attr("id") || $el.attr("class") || "button"
+    copyButtons.push({ location: `<button x-data="webShare" ${id}>`, hasWebShare: true, hasShareBind, hasSvg })
+  })
+
+  // Pattern 2: Buttons with share-related classes/attributes
+  $('button[class*="share" i], button[class*="copy-link" i], button[aria-label*="share" i], button[aria-label*="copy" i]').each(
+    (_, el) => {
+      const $el = $(el)
+      // Skip if already matched by Pattern 1
+      if ($el.attr("x-data") === "webShare") return
+      const hasSvg = $el.find("svg").length > 0
+      const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "button"
+      copyButtons.push({ location: `<button ${id}>`, hasWebShare: false, hasShareBind: false, hasSvg })
+    },
+  )
+
+  // Pattern 3: Links styled as copy/share buttons
+  $('a[class*="share" i], a[class*="copy-link" i], a[aria-label*="share" i], a[aria-label*="copy" i]').each((_, el) => {
+    const $el = $(el)
+    const hasSvg = $el.find("svg").length > 0
+    const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "anchor"
+    copyButtons.push({ location: `<a ${id}>`, hasWebShare: false, hasShareBind: false, hasSvg })
+  })
+
+  if (copyButtons.length === 0)
+    return info(
+      "copy-link-buttons",
+      "Copy Link / Share Buttons",
+      "Functionality",
+      "No copy-link or share buttons detected on the page.",
+    )
+
+  // Validate: Alpine webShare buttons must have x-bind="ShareLinkButton" and contain an SVG icon
+  const alpineButtons = copyButtons.filter((b) => b.hasWebShare)
+  const misconfigured = alpineButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
+
+  const evidence = copyButtons.map(
+    (b) =>
+      `${b.location} | webShare=${b.hasWebShare} | ShareLinkButton=${b.hasShareBind} | SVG=${b.hasSvg}`,
+  )
+
+  if (misconfigured.length === 0)
+    return pass(
+      "copy-link-buttons",
+      "Copy Link / Share Buttons",
+      "Functionality",
+      `${copyButtons.length} share/copy-link button(s) found and properly configured`,
+      evidence.join("\n"),
+    )
+
+  return warn(
+    "copy-link-buttons",
+    "Copy Link / Share Buttons",
+    "Functionality",
+    "medium",
+    `${misconfigured.length}/${alpineButtons.length} Alpine webShare button(s) may be misconfigured`,
+    "Ensure buttons with x-data=\"webShare\" also have x-bind=\"ShareLinkButton\" and contain an SVG icon for the copy/share action to work.",
+    undefined,
+    evidence,
+  )
+}
+
 // Dummy link checker (mirrors the standalone Python validator)
 const DUMMY_LINK_IGNORE_TEXTS = new Set([
   "skip to main content",
