@@ -22,6 +22,21 @@ const examples = [
 // Heuristic: treat these hostname patterns as protected dev/staging environments
 const DEV_PATTERNS = [/-dev\./i, /-staging\./i, /-uat\./i, /-qa\./i, /\.dev\./i, /www-dev\./i, /stage\./i, /preprod\./i]
 
+// Default credentials for Broadridge dev environments
+const BROADRIDGE_DEV_CREDENTIALS = {
+  username: "broadridgedigital",
+  password: "broadridge1",
+}
+
+function looksLikeBroadridgeDevUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url.match(/^https?:\/\//i) ? url : `https://${url}`)
+    return /www-dev\.broadridge\.com/i.test(hostname) || /-dev\.broadridge\.com/i.test(hostname)
+  } catch {
+    return false
+  }
+}
+
 function looksLikeProtectedUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url.match(/^https?:\/\//i) ? url : `https://${url}`)
@@ -39,10 +54,15 @@ export function ScanForm({ onScan, loading }: Props) {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
 
-  // Auto-expand auth panel when URL looks like a protected environment
+  // Auto-expand auth panel and auto-fill credentials for Broadridge dev URLs
   useEffect(() => {
     if (looksLikeProtectedUrl(url)) {
       setShowAuth(true)
+      // Auto-fill credentials for Broadridge dev environments
+      if (looksLikeBroadridgeDevUrl(url)) {
+        setUsername(BROADRIDGE_DEV_CREDENTIALS.username)
+        setPassword(BROADRIDGE_DEV_CREDENTIALS.password)
+      }
     }
   }, [url])
 
