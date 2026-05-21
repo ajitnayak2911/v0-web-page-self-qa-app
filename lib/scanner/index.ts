@@ -5,19 +5,23 @@ import * as C from "./checks"
 
 const FETCH_TIMEOUT_MS = 15000
 
-async function fetchPage(url: string) {
+async function fetchPage(url: string, auth?: { username: string; password: string }) {
   const start = Date.now()
   const controller = new AbortController()
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (compatible; QA-Scanner/1.0; +https://qa-scanner.local)",
+    Accept: "text/html,application/xhtml+xml",
+  }
+  if (auth) {
+    const encoded = Buffer.from(`${auth.username}:${auth.password}`).toString("base64")
+    headers["Authorization"] = `Basic ${encoded}`
+  }
   try {
     const res = await fetch(url, {
       redirect: "follow",
       signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; QA-Scanner/1.0; +https://qa-scanner.local)",
-        Accept: "text/html,application/xhtml+xml",
-      },
+      headers,
     })
     const html = await res.text()
     return {
@@ -34,7 +38,10 @@ async function fetchPage(url: string) {
   }
 }
 
-export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }): Promise<ScanReport> {
+export async function runScan(
+  rawUrl: string,
+  opts?: { validateLinks?: boolean; username?: string; password?: string },
+): Promise<ScanReport> {
   const started = Date.now()
   let url: URL
   try {
@@ -43,7 +50,12 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
     throw new Error("Invalid URL. Include the protocol (https://).")
   }
 
-  const fetched = await fetchPage(url.toString())
+  const auth =
+    opts?.username && opts?.password
+      ? { username: opts.username, password: opts.password }
+      : undefined
+
+  const fetched = await fetchPage(url.toString(), auth)
   const $ = cheerio.load(fetched.html)
   const baseUrl = new URL(fetched.finalUrl || url.toString())
 
@@ -57,7 +69,7 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
   // Validate links (limit to avoid timeouts)
   const linksToValidate = links.slice(0, 60)
   if (opts?.validateLinks !== false) {
-    const validated = await validateLinks(linksToValidate)
+    const validated = await validateLinks(linksToValidate, 8, auth)
     // merge validated info
     links = links.map((l, i) => (i < validated.length ? validated[i] : l))
   }
@@ -86,8 +98,11 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
     C.checkBodySubheadings(headings),
     C.checkSubheadStyling($),
     C.checkBadgeAllCaps($),
+    C.checkCopyLinkButtons($),
     C.checkUrlConvention(url.toString()),
     C.checkUrlLength(url.toString()),
+    C.checkDummyLinks($),
+    C.checkLinkBehaviorAudit($, baseUrl, links),
     C.checkBrokenLinks(links),
     C.checkRedirects(links),
     C.checkExternalNewTab(links),
@@ -97,7 +112,7 @@ export async function runScan(rawUrl: string, opts?: { validateLinks?: boolean }
     C.checkLinkRelSecurity(links),
     C.checkImageAlt(images),
     C.checkTitleMatchesH1($),
-    C.checkTrademarkSuperscript(fetched.html),
+    C.checkTrademarkSuperscript($),
     C.checkSpelling(bodyText),
     C.checkContactForm($),
     C.checkInternalSearch($),

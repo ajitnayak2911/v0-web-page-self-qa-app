@@ -244,6 +244,378 @@ export function checkBodySubheadings(headings: HeadingInfo[]): CheckResult {
   return info("body-subheadings", "Body Subheadings", "Content", "No H3+ subheadings on page.")
 }
 
+// ---------- LINK BEHAVIOR AUDIT (mirrors standalone Python "Link Behavior Audit") ----------
+const LBA_SPECIAL_EXTERNAL_PATHS = ["/fr/", "/de/", "/jp/", "/next"]
+const LBA_IGNORE_SELECTORS = [
+  "footer#footer-section",
+  "nav#main-nav",
+  "div.promo-bar",
+  "div.contact-us__bottom",
+  "div.ot-sdk-row",
+  "div#onetrust-consent-sdk",
+  "div#onetrust-group-container",
+  "div.ot-pc-footer-logo",
+  "a.ot-cookie-policy-link",
+  "div.recaptcha-disclaimer",
+  "div.recaptcha-disclaimer.reducefont",
+  "a.skip-link[href='#main-content']",
+]
+const LBA_IGNORE_HREF_PATTERNS = [
+  "https://policies.google.com/privacy",
+  "https://policies.google.com/terms",
+  "javascript:void(0)",
+  "/contact-us",
+]
+const LBA_SOCIAL_DOMAINS = ["twitter.com", "facebook.com", "linkedin.com"]
+const LBA_DOC_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".ppt", ".pptx"]
+
+export function checkLinkBehaviorAudit(
+  $: $Type,
+  baseUrl: URL,
+  validatedLinks: LinkInfo[],
+): CheckResult {
+  // Build status map from already-validated links so we don't issue extra requests
+  const statusByHref = new Map<string, LinkInfo>()
+  for (const l of validatedLinks) if (!statusByHref.has(l.href)) statusByHref.set(l.href, l)
+
+  // Combined selector used to filter out links inside ignored regions
+  const ignoreCombined = LBA_IGNORE_SELECTORS.join(", ")
+
+  type Row = {
+    text: string
+    opensIn: "New Tab" | "Same Tab"
+    kind: "Internal" | "External"
+    status: number | "Error" | "Unchecked"
+    health: string
+    expected: "OK" | "FAIL"
+    reason: string
+    href: string
+  }
+
+  const rows: Row[] = []
+
+  $("a[href]").each((_, el) => {
+    const $el = $(el)
+
+    // Skip if inside any ignored container (or the element itself matches an ignore selector)
+    try {
+      if ($el.closest(ignoreCombined).length > 0) return
+    } catch {
+      // If a selector is unsupported by cheerio, fall through
+    }
+
+    let href = ($el.attr("href") || "").trim()
+    if (!href) return
+    if (href.startsWith("tel:") || href.startsWith("mailto:") || href.startsWith("#main-content")) return
+    if (LBA_IGNORE_HREF_PATTERNS.some((p) => href.includes(p))) return
+
+    let absolute: URL
+    try {
+      absolute = new URL(href, baseUrl)
+    } catch {
+      return
+    }
+    const absHref = absolute.toString()
+
+    const linkText =
+      $el.text().trim() ||
+      $el.attr("aria-label")?.trim() ||
+      $el.attr("title")?.trim() ||
+      absHref
+
+    let isExternal = !!absolute.hostname && absolute.hostname !== baseUrl.hostname
+    for (const sp of LBA_SPECIAL_EXTERNAL_PATHS) {
+      if (absolute.pathname.startsWith(sp) && absolute.hostname === baseUrl.hostname) {
+        isExternal = true
+        break
+      }
+    }
+
+    let opensIn: "New Tab" | "Same Tab" = $el.attr("target") === "_blank" ? "New Tab" : "Same Tab"
+    if (LBA_SOCIAL_DOMAINS.some((d) => href.includes(d))) opensIn = "New Tab"
+
+    const isDocument = LBA_DOC_EXTENSIONS.some((ext) => absHref.toLowerCase().endsWith(ext))
+
+    let expected: "OK" | "FAIL"
+    let reason: string
+
+    if (isDocument) {
+      isExternal = true
+      if (opensIn === "New Tab") {
+        expected = "OK"
+        reason = "Document: must open External in New Tab"
+      } else {
+        expected = "FAIL"
+        reason = "Document opened wrong (should be New Tab)"
+      }
+    } else if (isExternal) {
+      if (opensIn === "New Tab") {
+        expected = "OK"
+        reason = "External OK"
+      } else {
+        expected = "FAIL"
+        reason = "External should open New Tab"
+      }
+    } else {
+      if (opensIn === "Same Tab") {
+        expected = "OK"
+        reason = "Internal OK"
+      } else {
+        expected = "FAIL"
+        reason = "Internal should open Same Tab"
+      }
+    }
+
+    // Reuse validated status if available
+    const validated = statusByHref.get(absHref)
+    let status: number | "Error" | "Unchecked" = "Unchecked"
+    let health = "Not checked"
+    if (validated) {
+      if (typeof validated.status === "number" && validated.status > 0) {
+        status = validated.status
+        if (status >= 200 && status < 300) health = "OK"
+        else if (status >= 300 && status < 400) health = "Redirect"
+        else if (status >= 400 && status < 500) health = "Client Error"
+        else if (status >= 500 && status < 600) health = "Server Error"
+        else health = "Unknown"
+      } else if (validated.error || validated.ok === false) {
+        status = "Error"
+        health = "Unreachable"
+      }
+    }
+
+    rows.push({
+      text: linkText.slice(0, 120),
+      opensIn,
+      kind: isExternal ? "External" : "Internal",
+      status,
+      health,
+      expected,
+      reason,
+      href: absHref,
+    })
+  })
+
+  if (rows.length === 0)
+    return info(
+      "link-behavior-audit",
+      "Link Behavior Audit",
+      "Links",
+      "No auditable links found after applying ignore rules.",
+    )
+
+  const failures = rows.filter((r) => r.expected === "FAIL")
+  const unhealthy = rows.filter(
+    (r) => r.health === "Client Error" || r.health === "Server Error" || r.health === "Unreachable",
+  )
+
+  const evidence = rows
+    .slice(0, 80)
+    .map(
+      (r) =>
+        `[${r.expected === "OK" ? "PASS" : "FAIL"}] ${r.kind} | ${r.opensIn} | ${r.status} ${r.health} | "${r.text}" -> ${r.href} -- ${r.reason}`,
+    )
+
+  if (failures.length === 0 && unhealthy.length === 0)
+    return pass(
+      "link-behavior-audit",
+      "Link Behavior Audit",
+      "Links",
+      `${rows.length} link(s) audited - all targets correct and healthy`,
+      undefined,
+    )
+
+  const sev: Severity = failures.length > 0 ? "medium" : "low"
+  const msgs: string[] = []
+  if (failures.length) msgs.push(`${failures.length} target-attribute mismatch(es)`)
+  if (unhealthy.length) msgs.push(`${unhealthy.length} unhealthy link(s)`)
+
+  return warn(
+    "link-behavior-audit",
+    "Link Behavior Audit",
+    "Links",
+    sev,
+    `${msgs.join("; ")} across ${rows.length} audited link(s)`,
+    "Internal links should open in same tab; external + document links in new tab. Fix 4xx/5xx/unreachable links.",
+    undefined,
+    evidence,
+  )
+}
+
+// ---------- COPY LINK / SHARE BUTTON VALIDATION ----------
+// Detects share/copy-link buttons (Alpine.js webShare pattern or similar) and validates configuration
+
+export function checkCopyLinkButtons($: $Type): CheckResult {
+  const copyButtons: {
+    location: string
+    type: "webShare" | "social" | "generic"
+    hasShareBind: boolean
+    hasSvg: boolean
+    platform?: string
+  }[] = []
+
+  // Pattern 1: Alpine.js webShare button (the copy-link button)
+  $("button").each((_, el) => {
+    const $el = $(el)
+    const xData = $el.attr("x-data")
+    const xBind = $el.attr("x-bind")
+    
+    if (xData === "webShare") {
+      const hasShareBind = xBind === "ShareLinkButton"
+      const hasSvg = $el.find("svg").length > 0
+      copyButtons.push({
+        location: `<button x-data="webShare" x-bind="${xBind || "(none)"}">`,
+        type: "webShare",
+        hasShareBind,
+        hasSvg,
+      })
+    }
+  })
+
+  // Pattern 2: Social share buttons (twitter, linkedin, facebook)
+  $("button").each((_, el) => {
+    const $el = $(el)
+    const xData = $el.attr("x-data")
+    const xBind = $el.attr("x-bind")
+    
+    if (xData && /^(twitter|linkedin|facebook)$/i.test(xData)) {
+      const expectedBind = `${xData.charAt(0).toUpperCase() + xData.slice(1).toLowerCase()}ShareButton`
+      const hasCorrectBind = xBind?.includes("ShareButton") || false
+      const hasSvg = $el.find("svg").length > 0
+      copyButtons.push({
+        location: `<button x-data="${xData}" x-bind="${xBind || "(none)"}">`,
+        type: "social",
+        hasShareBind: hasCorrectBind,
+        hasSvg,
+        platform: xData,
+      })
+    }
+  })
+
+  // Pattern 3: Generic share buttons by class/aria
+  $('button[class*="share" i], button[aria-label*="share" i], button[aria-label*="copy" i]').each((_, el) => {
+    const $el = $(el)
+    const xData = $el.attr("x-data")
+    // Skip if already matched by Pattern 1 or 2
+    if (xData === "webShare" || /^(twitter|linkedin|facebook)$/i.test(xData || "")) return
+    const hasSvg = $el.find("svg").length > 0
+    const id = $el.attr("aria-label") || $el.attr("class")?.slice(0, 40) || "button"
+    copyButtons.push({
+      location: `<button ${id}>`,
+      type: "generic",
+      hasShareBind: true, // assume OK for generic
+      hasSvg,
+    })
+  })
+
+  if (copyButtons.length === 0)
+    return info(
+      "copy-link-buttons",
+      "Copy Link / Share Buttons",
+      "Functionality",
+      "No copy-link or share buttons detected on the page.",
+    )
+
+  // Validate webShare buttons must have x-bind="ShareLinkButton" and contain an SVG icon
+  const webShareButtons = copyButtons.filter((b) => b.type === "webShare")
+  const socialButtons = copyButtons.filter((b) => b.type === "social")
+  
+  const misconfiguredWebShare = webShareButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
+  const misconfiguredSocial = socialButtons.filter((b) => !b.hasShareBind || !b.hasSvg)
+
+  const evidence = copyButtons.map((b) => {
+    const status = b.type === "webShare" 
+      ? (b.hasShareBind && b.hasSvg ? "OK" : "ISSUE") 
+      : b.type === "social"
+        ? (b.hasShareBind && b.hasSvg ? "OK" : "ISSUE")
+        : "OK"
+    return `[${status}] ${b.type}${b.platform ? ` (${b.platform})` : ""} | ${b.location} | bind=${b.hasShareBind} | svg=${b.hasSvg}`
+  })
+
+  const totalMisconfigured = misconfiguredWebShare.length + misconfiguredSocial.length
+
+  if (totalMisconfigured === 0)
+    return pass(
+      "copy-link-buttons",
+      "Copy Link / Share Buttons",
+      "Functionality",
+      `${copyButtons.length} share button(s) found: ${webShareButtons.length} copy-link, ${socialButtons.length} social — all properly configured`,
+      evidence.join("\n"),
+    )
+
+  return warn(
+    "copy-link-buttons",
+    "Copy Link / Share Buttons",
+    "Functionality",
+    "medium",
+    `${totalMisconfigured} share button(s) may be misconfigured (missing x-bind or SVG icon)`,
+    "Ensure Alpine share buttons have correct x-bind attribute and contain an SVG icon.",
+    undefined,
+    evidence,
+  )
+}
+
+// Dummy link checker (mirrors the standalone Python validator)
+const DUMMY_LINK_IGNORE_TEXTS = new Set([
+  "skip to main content",
+  "contact us",
+  "do not sell my personal information",
+])
+
+function isDummyHref(href: string | undefined | null): boolean {
+  if (!href) return true
+  const h = href.trim().toLowerCase()
+  return (
+    h === "#" ||
+    h.startsWith("#") ||
+    h === "javascript:void(0)" ||
+    h === "javascript:void(0);" ||
+    h.startsWith("javascript:")
+  )
+}
+
+function cleanDummyLinkText(text: string): string {
+  if (!text) return "[NO TEXT]"
+  const trimmed = text.trim()
+  const lower = trimmed.toLowerCase()
+  for (const prefix of ["resource", "article"]) {
+    if (lower.startsWith(prefix)) return trimmed.slice(prefix.length).trim() || "[NO TEXT]"
+  }
+  return trimmed
+}
+
+export function checkDummyLinks($: $Type): CheckResult {
+  const dummies: { index: number; text: string; href: string }[] = []
+  let count = 1
+
+  $("a").each((_, el) => {
+    const $el = $(el)
+    const href = $el.attr("href") || ""
+    const rawText = $el.text().trim()
+    const text = cleanDummyLinkText(rawText)
+
+    if (DUMMY_LINK_IGNORE_TEXTS.has(text.trim().toLowerCase())) return
+    if (!isDummyHref(href)) return
+
+    dummies.push({ index: count, text, href: href || "(empty)" })
+    count += 1
+  })
+
+  if (dummies.length === 0)
+    return pass("dummy-links", "Dummy Links", "Functionality", "No dummy links found on the page")
+
+  return warn(
+    "dummy-links",
+    "Dummy Links",
+    "Functionality",
+    "medium",
+    `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", etc.)`,
+    "Replace placeholder hrefs with real destinations or remove the link entirely.",
+    undefined,
+    dummies.slice(0, 50).map((d) => `[${d.index}] ${d.text} → href=${d.href}`),
+  )
+}
+
 // Whitelist of approved badge patterns (mirrors the standalone Python validator)
 const BADGE_PATTERNS: { tag: string; requiredClasses: string[]; requiredAttrs: Record<string, string> }[] = [
   { tag: "span", requiredClasses: ["badge", "badge-light", "w-fit"], requiredAttrs: { slot: "title" } },
@@ -579,18 +951,68 @@ export function checkTitleMatchesH1($: $Type): CheckResult {
   )
 }
 
-export function checkTrademarkSuperscript(html: string): CheckResult {
-  // Find ™ or ® not inside <sup>
-  const stripped = html.replace(/<sup[\s\S]*?<\/sup>/gi, "")
-  const tmCount = (stripped.match(/[™®]/g) || []).length
-  if (tmCount === 0) return info("trademark", "Trademark Superscript", "Content", "No ™/® symbols outside <sup> found.")
+export function checkTrademarkSuperscript($: $Type): CheckResult {
+  // Get all visible body text and count ™/® symbols using Cheerio for consistency
+  // We need to check text nodes that are NOT inside <sup> tags
+  
+  let insideSup = 0
+  let outsideSup = 0
+  const violations: string[] = []
+  
+  // Count symbols inside <sup> tags (properly formatted)
+  $("sup").each((_, el) => {
+    const text = $(el).text()
+    const count = (text.match(/[™®]/g) || []).length
+    insideSup += count
+  })
+  
+  // Count symbols in body text that are NOT inside <sup>
+  // We check common content containers and look for text nodes with symbols
+  $("p, span, div, li, td, th, h1, h2, h3, h4, h5, h6, a, strong, em, b, i").each((_, el) => {
+    const $el = $(el)
+    // Get only direct text content (not from child elements)
+    const directText = $el.contents().filter(function() {
+      return (this as any).type === "text"
+    }).text()
+    
+    const symbols = directText.match(/[™®]/g) || []
+    if (symbols.length > 0) {
+      outsideSup += symbols.length
+      const snippet = directText.trim().slice(0, 60)
+      if (snippet && violations.length < 10) {
+        violations.push(`"${snippet}..." contains ${symbols.length} symbol(s) not in <sup>`)
+      }
+    }
+  })
+  
+  const total = insideSup + outsideSup
+  
+  if (total === 0)
+    return info(
+      "trademark",
+      "Trademark Superscript",
+      "Content",
+      "No trademark symbols (™/®) found on the page.",
+    )
+  
+  if (outsideSup === 0)
+    return pass(
+      "trademark",
+      "Trademark Superscript",
+      "Content",
+      `${total} trademark symbol(s) found — all properly wrapped in <sup>`,
+      `${insideSup} symbol(s) correctly in <sup> tags`,
+    )
+  
   return warn(
     "trademark",
     "Trademark Superscript",
     "Content",
     "low",
-    `${tmCount} trademark symbol(s) not wrapped in <sup>`,
+    `${outsideSup}/${total} trademark symbol(s) not wrapped in <sup>`,
     "Wrap ™ and ® in <sup> for proper typography.",
+    undefined,
+    [`Total: ${total}`, `In <sup>: ${insideSup}`, `Not in <sup>: ${outsideSup}`, ...violations],
   )
 }
 

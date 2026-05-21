@@ -24,20 +24,41 @@ export function resolveHref(href: string, baseUrl: URL): string {
   }
 }
 
-async function checkOne(link: LinkInfo, timeoutMs = 8000): Promise<LinkInfo> {
+async function checkOne(
+  link: LinkInfo,
+  timeoutMs = 8000,
+  auth?: { username: string; password: string },
+): Promise<LinkInfo> {
   if (link.type === "anchor" || link.type === "mailto" || link.type === "tel") {
     return { ...link, ok: true, status: 0, statusText: "skipped" }
   }
   try {
     const controller = new AbortController()
     const t = setTimeout(() => controller.abort(), timeoutMs)
+
+    // Build auth header — apply only to same-host links to avoid leaking creds
+    const authHeaders: Record<string, string> = {}
+    if (auth) {
+      try {
+        const linkHost = new URL(link.href).hostname
+        const originHost = new URL(link.href).hostname // same hostname check happens below
+        // We pass auth only when the link is classified as internal (same host)
+        if (link.type === "internal") {
+          const encoded = Buffer.from(`${auth.username}:${auth.password}`).toString("base64")
+          authHeaders["Authorization"] = `Basic ${encoded}`
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     let res: Response
     try {
       res = await fetch(link.href, {
         method: "HEAD",
         redirect: "follow",
         signal: controller.signal,
-        headers: { "User-Agent": "QA-Scanner/1.0 (+https://qa-scanner.local)" },
+        headers: { "User-Agent": "QA-Scanner/1.0 (+https://qa-scanner.local)", ...authHeaders },
       })
       // Some servers don't support HEAD; retry GET on 405/403
       if (res.status === 405 || res.status === 403 || res.status === 501) {
@@ -45,7 +66,7 @@ async function checkOne(link: LinkInfo, timeoutMs = 8000): Promise<LinkInfo> {
           method: "GET",
           redirect: "follow",
           signal: controller.signal,
-          headers: { "User-Agent": "QA-Scanner/1.0" },
+          headers: { "User-Agent": "QA-Scanner/1.0", ...authHeaders },
         })
       }
     } finally {
@@ -68,13 +89,17 @@ async function checkOne(link: LinkInfo, timeoutMs = 8000): Promise<LinkInfo> {
   }
 }
 
-export async function validateLinks(links: LinkInfo[], concurrency = 8): Promise<LinkInfo[]> {
+export async function validateLinks(
+  links: LinkInfo[],
+  concurrency = 8,
+  auth?: { username: string; password: string },
+): Promise<LinkInfo[]> {
   const results: LinkInfo[] = new Array(links.length)
   let i = 0
   async function worker() {
     while (i < links.length) {
       const idx = i++
-      results[idx] = await checkOne(links[idx])
+      results[idx] = await checkOne(links[idx], 8000, auth)
     }
   }
   const workers = Array.from({ length: Math.min(concurrency, links.length) }, () => worker())
