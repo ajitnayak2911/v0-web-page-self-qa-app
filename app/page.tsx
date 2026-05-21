@@ -86,6 +86,37 @@ export default function HomePage() {
             <ScanReportView report={report} />
           </>
         )}
+
+        {!report && !loading && !error && (
+          <section aria-labelledby="features-heading" className="pt-4">
+            <h2 id="features-heading" className="sr-only">
+              What QA Scanner does
+            </h2>
+            <div className="grid gap-6 md:grid-cols-3">
+              <article className="rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
+                <div className="h-1 w-10 rounded-full bg-primary mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">40+ QA Checks</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  SEO, metadata, accessibility, content quality, links, performance, and technical validation.
+                </p>
+              </article>
+              <article className="rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
+                <div className="h-1 w-10 rounded-full bg-primary mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">Deep Link Analysis</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  Validates every link, detects broken URLs, redirects, missing target attributes, and security issues.
+                </p>
+              </article>
+              <article className="rounded-xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
+                <div className="h-1 w-10 rounded-full bg-primary mb-4" />
+                <h3 className="text-lg font-semibold text-foreground">Actionable Report</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  Severity-tagged findings with evidence and suggested fixes. Export as JSON for tickets.
+                </p>
+              </article>
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Footer */}
