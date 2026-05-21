@@ -1,9 +1,8 @@
 import { cn } from "@/lib/utils"
 
 /**
- * Broadridge wordmark: navy square with a stylized white leaf/wing mark,
- * followed by the "Broadridge" wordmark. Tight bounding box so it scales
- * cleanly via height utilities (no baked-in whitespace).
+ * Broadridge wordmark only (no leaf/wing mark). Tight bounding box so it
+ * scales cleanly via height utilities.
  */
 export function BroadridgeLogo({
   className,
@@ -20,24 +19,18 @@ export function BroadridgeLogo({
     lg: "h-11",
   }
   const wordColor = variant === "light" ? "#FFFFFF" : "#0A1F44"
-  const markFg = variant === "light" ? "#FFFFFF" : "#0A1F44"
 
   return (
     <svg
       role="img"
       aria-label="Broadridge"
-      viewBox="0 0 260 56"
+      viewBox="0 0 200 56"
       className={cn(heights[size], "w-auto", className)}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Mark: stylized leaf/wing (no background square) */}
-      <path
-        d="M14 12 C24 14, 30 22, 30 32 C30 22, 36 14, 46 12 C40 22, 36 32, 36 44 C32 38, 28 38, 24 44 C24 32, 20 22, 14 12 Z"
-        fill={markFg}
-      />
       {/* Wordmark "Broadridge" */}
       <text
-        x="72"
+        x="0"
         y="38"
         fontFamily="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
         fontWeight="700"
@@ -49,7 +42,7 @@ export function BroadridgeLogo({
       </text>
       {/* Registered trademark */}
       <text
-        x="247"
+        x="175"
         y="20"
         fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
         fontWeight="500"
