@@ -20,8 +20,7 @@ export function BroadridgeLogo({
     lg: "h-11",
   }
   const wordColor = variant === "light" ? "#FFFFFF" : "#0A1F44"
-  const markBg = variant === "light" ? "#FFFFFF" : "#0A1F44"
-  const markFg = variant === "light" ? "#0A1F44" : "#FFFFFF"
+  const markFg = variant === "light" ? "#FFFFFF" : "#0A1F44"
 
   return (
     <svg
@@ -31,8 +30,7 @@ export function BroadridgeLogo({
       className={cn(heights[size], "w-auto", className)}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Mark: solid square with stylized leaf/wing */}
-      <rect x="0" y="0" width="56" height="56" rx="2" fill={markBg} />
+      {/* Mark: stylized leaf/wing (no background square) */}
       <path
         d="M14 12 C24 14, 30 22, 30 32 C30 22, 36 14, 46 12 C40 22, 36 32, 36 44 C32 38, 28 38, 24 44 C24 32, 20 22, 14 12 Z"
         fill={markFg}
