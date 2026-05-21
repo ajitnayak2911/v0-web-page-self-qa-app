@@ -5,7 +5,8 @@ import { ScanForm } from "@/components/scan-form"
 import { ScanSummary } from "@/components/scan-summary"
 import { ScanReportView } from "@/components/scan-report"
 import type { ScanReport } from "@/lib/scanner/types"
-import { ShieldCheck, AlertCircle } from "lucide-react"
+import { AlertCircle } from "lucide-react"
+import { BroadridgeLogo } from "@/components/broadridge-logo"
 
 export default function HomePage() {
   const [loading, setLoading] = useState(false)
@@ -34,30 +35,35 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="container max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">QA Scanner</h1>
-              <p className="text-xs text-muted-foreground">Self-service web page quality assurance</p>
-            </div>
-          </div>
+      <header className="bg-[oklch(0.16_0.06_260)] text-white">
+        <div className="container max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <BroadridgeLogo variant="dark" />
+          <nav className="hidden md:flex items-center gap-8 text-sm">
+            <a className="text-white/80 hover:text-white transition" href="#">Capabilities</a>
+            <a className="text-white/80 hover:text-white transition" href="#">Insights</a>
+            <a className="text-white/80 hover:text-white transition" href="#">About</a>
+            <a
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition"
+              href="#"
+            >
+              Contact us
+            </a>
+          </nav>
         </div>
       </header>
-
-      <div className="container max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-balance">
-            Run a deep QA scan on any webpage
-          </h2>
-          <p className="text-muted-foreground mt-1 text-pretty">
-            Checks UI, links, accessibility, SEO, metadata, content quality, and more across 40+ validations.
+      <section className="bg-gradient-to-br from-[oklch(0.16_0.06_260)] via-[oklch(0.22_0.07_260)] to-[oklch(0.30_0.10_260)] text-white">
+        <div className="container max-w-6xl mx-auto px-4 py-12">
+          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-balance max-w-3xl">
+            Self-service web page quality assurance
+          </h1>
+          <p className="mt-3 text-white/80 max-w-2xl text-pretty">
+            Run a deep QA scan on any Broadridge page. Validate UI, links, accessibility, SEO, and content quality in
+            seconds.
           </p>
         </div>
+      </section>
 
+      <div className="container max-w-6xl mx-auto px-4 py-8 space-y-6">
         <ScanForm onScan={handleScan} loading={loading} />
 
         {error && (
@@ -106,9 +112,12 @@ export default function HomePage() {
         )}
       </div>
 
-      <footer className="border-t border-border mt-12">
-        <div className="container max-w-6xl mx-auto px-4 py-6 text-xs text-muted-foreground">
-          QA Scanner — built for internal teams to self-QA web pages before formal review.
+      <footer className="bg-[oklch(0.16_0.06_260)] text-white/70 mt-12">
+        <div className="container max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <BroadridgeLogo variant="dark" />
+          <p className="text-xs">
+            &copy; {new Date().getFullYear()} Broadridge Financial Solutions, Inc. — QA Scanner for internal teams.
+          </p>
         </div>
       </footer>
     </main>

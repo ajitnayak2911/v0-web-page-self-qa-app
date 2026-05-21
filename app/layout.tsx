@@ -7,8 +7,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'QA Scanner — Self-Service Web QA',
-  description: 'Deep QA scan for webpages: links, accessibility, SEO, metadata, and content quality.',
+  title: 'Broadridge QA Scanner — Self-Service Web QA',
+  description: 'Broadridge self-service QA: deep scan for links, accessibility, SEO, metadata, and content quality.',
   generator: 'v0.app',
   icons: {
     icon: [
