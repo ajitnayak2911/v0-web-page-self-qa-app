@@ -78,12 +78,30 @@ function CheckRow({ check }: { check: CheckResult }) {
           {check.evidence && check.evidence.length > 0 && (
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1">Evidence ({check.evidence.length})</p>
-              <ul className="space-y-1">
-                {check.evidence.map((e, i) => (
-                  <li key={i} className="text-xs font-mono bg-muted/50 px-2 py-1 rounded break-all">
-                    {e}
-                  </li>
-                ))}
+              <ul className="space-y-1 max-h-80 overflow-y-auto pr-1">
+                {check.evidence.map((e, i) => {
+                  const urlMatch = e.match(/https?:\/\/[^\s"')]+/)
+                  return (
+                    <li key={i} className="text-xs font-mono bg-muted/50 px-2 py-1 rounded break-all">
+                      {urlMatch ? (
+                        <>
+                          {e.slice(0, urlMatch.index)}
+                          <a
+                            href={urlMatch[0]}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {urlMatch[0]}
+                          </a>
+                          {e.slice((urlMatch.index || 0) + urlMatch[0].length)}
+                        </>
+                      ) : (
+                        e
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}

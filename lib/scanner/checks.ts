@@ -788,7 +788,12 @@ export function extractLinks($: $Type, baseUrl: URL): LinkInfo[] {
 
 export function checkBrokenLinks(links: LinkInfo[]): CheckResult {
   const broken = links.filter((l) => l.ok === false && l.type !== "mailto" && l.type !== "tel" && l.type !== "anchor")
-  if (broken.length === 0) return pass("broken-links", "Broken Links", "Links", "No broken links detected")
+  const checked = links.filter((l) => l.type !== "mailto" && l.type !== "tel" && l.type !== "anchor")
+  if (broken.length === 0)
+    return {
+      ...pass("broken-links", "Broken Links", "Links", `No broken links detected (${checked.length} link(s) checked)`),
+      evidence: checked.slice(0, 100).map((l) => `${l.status || "—"} ${l.href}`),
+    }
   return fail(
     "broken-links",
     "Broken Links",
@@ -803,7 +808,7 @@ export function checkBrokenLinks(links: LinkInfo[]): CheckResult {
 
 export function checkRedirects(links: LinkInfo[]): CheckResult {
   const redirects = links.filter((l) => l.redirected && l.ok)
-  if (redirects.length === 0) return pass("redirects", "Redirect Links", "Links", "No redirected links")
+  if (redirects.length === 0) return pass("redirects", "Redirect Links", "Links", "No redirected links detected")
   return warn(
     "redirects",
     "Redirect Links",
@@ -821,7 +826,10 @@ export function checkExternalNewTab(links: LinkInfo[]): CheckResult {
   const bad = ext.filter((l) => l.target !== "_blank")
   if (ext.length === 0) return info("ext-new-tab", "External Links Open in New Tab", "Functionality", "No external links found.")
   if (bad.length === 0)
-    return pass("ext-new-tab", "External Links Open in New Tab", "Functionality", `${ext.length} external links — all open in new tab`)
+    return {
+      ...pass("ext-new-tab", "External Links Open in New Tab", "Functionality", `${ext.length} external links — all open in new tab`),
+      evidence: ext.slice(0, 100).map((l) => `${l.href}${l.text ? ` — "${l.text}"` : ""}`),
+    }
   return warn(
     "ext-new-tab",
     "External Links Open in New Tab",
@@ -830,7 +838,7 @@ export function checkExternalNewTab(links: LinkInfo[]): CheckResult {
     `${bad.length}/${ext.length} external links missing target="_blank"`,
     'Add target="_blank" rel="noopener noreferrer" to external links.',
     undefined,
-    bad.slice(0, 10).map((l) => l.href),
+    bad.slice(0, 100).map((l) => `[MISSING target="_blank"] ${l.href}${l.text ? ` — "${l.text}"` : ""}`),
   )
 }
 
@@ -839,7 +847,10 @@ export function checkInternalSameTab(links: LinkInfo[]): CheckResult {
   const bad = internal.filter((l) => l.target === "_blank")
   if (internal.length === 0) return info("int-same-tab", "Internal Links Open in Same Tab", "Functionality", "No internal links found.")
   if (bad.length === 0)
-    return pass("int-same-tab", "Internal Links Open in Same Tab", "Functionality", `${internal.length} internal links — all open in same tab`)
+    return {
+      ...pass("int-same-tab", "Internal Links Open in Same Tab", "Functionality", `${internal.length} internal links — all open in same tab`),
+      evidence: internal.slice(0, 100).map((l) => `${l.href}${l.text ? ` — "${l.text}"` : ""}`),
+    }
   return warn(
     "int-same-tab",
     "Internal Links Open in Same Tab",
@@ -857,7 +868,10 @@ export function checkPdfsNewTab(links: LinkInfo[]): CheckResult {
   if (pdfs.length === 0) return info("pdf-new-tab", "PDFs Open in New Tab", "Functionality", "No PDF links found.")
   const bad = pdfs.filter((l) => l.target !== "_blank")
   if (bad.length === 0)
-    return pass("pdf-new-tab", "PDFs Open in New Tab", "Functionality", `${pdfs.length} PDF link(s) — all open in new tab`)
+    return {
+      ...pass("pdf-new-tab", "PDFs Open in New Tab", "Functionality", `${pdfs.length} PDF link(s) — all open in new tab`),
+      evidence: pdfs.slice(0, 100).map((l) => `${l.href}${l.text ? ` — "${l.text}"` : ""}`),
+    }
   return warn(
     "pdf-new-tab",
     "PDFs Open in New Tab",
@@ -875,7 +889,10 @@ export function checkLinkRelSecurity(links: LinkInfo[]): CheckResult {
   const bad = ext.filter((l) => !/noopener/i.test(l.rel || "") || !/noreferrer/i.test(l.rel || ""))
   if (ext.length === 0) return info("rel-security", "External Link Security (rel)", "Technical", "No external _blank links found.")
   if (bad.length === 0)
-    return pass("rel-security", "External Link Security (rel)", "Technical", "All external _blank links have proper rel attributes")
+    return {
+      ...pass("rel-security", "External Link Security (rel)", "Technical", `${ext.length} external _blank link(s) — all have proper rel attributes`),
+      evidence: ext.slice(0, 100).map((l) => `${l.href} (rel="${l.rel || ""}")`),
+    }
   return warn(
     "rel-security",
     "External Link Security (rel)",
@@ -914,7 +931,10 @@ export function checkImageAlt(images: ImageInfo[]): CheckResult {
   if (images.length === 0) return info("img-alt", "Image Alt Text", "Accessibility", "No images on page.")
   const missing = images.filter((i) => !i.hasAlt)
   if (missing.length === 0)
-    return pass("img-alt", "Image Alt Text", "Accessibility", `All ${images.length} images have alt attributes`)
+    return {
+      ...pass("img-alt", "Image Alt Text", "Accessibility", `All ${images.length} images have alt attributes`),
+      evidence: images.slice(0, 100).map((i) => `${i.src} — alt="${i.alt ?? ""}"`),
+    }
   return fail(
     "img-alt",
     "Image Alt Text",
