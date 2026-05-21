@@ -35,20 +35,9 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="bg-[oklch(0.16_0.06_260)] text-white">
-        <div className="container max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <BroadridgeLogo variant="dark" />
-          <nav className="hidden md:flex items-center gap-8 text-sm">
-            <a className="text-white/80 hover:text-white transition" href="#">Capabilities</a>
-            <a className="text-white/80 hover:text-white transition" href="#">Insights</a>
-            <a className="text-white/80 hover:text-white transition" href="#">About</a>
-            <a
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition"
-              href="#"
-            >
-              Contact us
-            </a>
-          </nav>
+      <header className="bg-white border-b border-border">
+        <div className="container max-w-6xl mx-auto px-4 py-4">
+          <BroadridgeLogo variant="light" />
         </div>
       </header>
       <section className="bg-gradient-to-br from-[oklch(0.16_0.06_260)] via-[oklch(0.22_0.07_260)] to-[oklch(0.30_0.10_260)] text-white">
