@@ -3,30 +3,24 @@ import { cn } from "@/lib/utils"
 
 export function BroadridgeLogo({
   className,
-  // variant kept for backwards-compat with existing callers; the official
-  // brand logo only ships in a dark-on-light form, so we render it on a
-  // small white tile when used over dark backgrounds.
-  variant = "light",
+  size = "md",
 }: {
   className?: string
-  variant?: "dark" | "light"
+  size?: "sm" | "md" | "lg"
 }) {
+  const heights: Record<string, string> = {
+    sm: "h-7",
+    md: "h-9",
+    lg: "h-11",
+  }
   return (
-    <div
-      className={cn(
-        "inline-flex items-center",
-        variant === "dark" && "bg-white rounded-md px-3 py-1.5",
-        className,
-      )}
-    >
-      <Image
-        src="/broadridge-logo.png"
-        alt="Broadridge"
-        width={180}
-        height={36}
-        priority
-        className="h-7 w-auto"
-      />
-    </div>
+    <Image
+      src="/broadridge-logo.png"
+      alt="Broadridge"
+      width={400}
+      height={80}
+      priority
+      className={cn("w-auto", heights[size], className)}
+    />
   )
 }

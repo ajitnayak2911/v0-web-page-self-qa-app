@@ -36,16 +36,16 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
       <header className="bg-white border-b border-border">
-        <div className="container max-w-6xl mx-auto px-4 py-4">
-          <BroadridgeLogo variant="light" />
+        <div className="container max-w-6xl mx-auto px-4 h-20 flex items-center">
+          <BroadridgeLogo size="lg" />
         </div>
       </header>
-      <section className="bg-gradient-to-br from-[oklch(0.16_0.06_260)] via-[oklch(0.22_0.07_260)] to-[oklch(0.30_0.10_260)] text-white">
-        <div className="container max-w-6xl mx-auto px-4 py-12">
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-balance max-w-3xl">
+      <section className="bg-[oklch(0.16_0.06_260)] text-white">
+        <div className="container max-w-6xl mx-auto px-4 py-16">
+          <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-balance max-w-3xl">
             Self-service web page quality assurance
           </h1>
-          <p className="mt-3 text-white/80 max-w-2xl text-pretty">
+          <p className="mt-4 text-lg text-white/80 max-w-2xl text-pretty">
             Run a deep QA scan on any Broadridge page. Validate UI, links, accessibility, SEO, and content quality in
             seconds.
           </p>
@@ -101,10 +101,10 @@ export default function HomePage() {
         )}
       </div>
 
-      <footer className="bg-[oklch(0.16_0.06_260)] text-white/70 mt-12">
+      <footer className="bg-white border-t border-border mt-12">
         <div className="container max-w-6xl mx-auto px-4 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <BroadridgeLogo variant="dark" />
-          <p className="text-xs">
+          <BroadridgeLogo size="sm" />
+          <p className="text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} Broadridge Financial Solutions, Inc. — QA Scanner for internal teams.
           </p>
         </div>
