@@ -584,6 +584,21 @@ function cleanDummyLinkText(text: string): string {
   return trimmed
 }
 
+// Framework binding attributes that carry the *real* URL at runtime
+// (e.g. Vue `:href`, Angular `[href]`, Alpine `x-bind:href`, AngularJS `ng-href`)
+const DYNAMIC_HREF_ATTRS = [
+  ":href",
+  "v-bind:href",
+  "[href]",
+  "x-bind:href",
+  "ng-href",
+  "bind-href",
+  "@href",
+]
+
+// Data-attributes commonly used to stash URLs
+const DATA_URL_ATTRS = ["data-href", "data-url", "data-link", "data-target", "data-redirect"]
+
 export function checkDummyLinks($: $Type): CheckResult {
   const dummies: { index: number; text: string; href: string; snippet: string }[] = []
   let count = 1
@@ -598,12 +613,33 @@ export function checkDummyLinks($: $Type): CheckResult {
     if (DUMMY_LINK_IGNORE_TEXTS.has(text.trim().toLowerCase())) return
     if (!isDummyHref(hrefRaw)) return
 
+    // Look for framework binding attributes or data-* URLs that hold the real destination
+    const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+    const dynamicParts: string[] = []
+
+    for (const name of DYNAMIC_HREF_ATTRS) {
+      if (attribs[name] !== undefined) {
+        dynamicParts.push(`${name}="${attribs[name]}" (resolved at runtime)`)
+      }
+    }
+    for (const name of DATA_URL_ATTRS) {
+      if (attribs[name] !== undefined) {
+        dynamicParts.push(`${name}="${attribs[name]}"`)
+      }
+    }
+    // Inline JS handlers that may navigate
+    if (attribs["onclick"]) {
+      dynamicParts.push(`onclick="${attribs["onclick"].slice(0, 120)}${attribs["onclick"].length > 120 ? "…" : ""}"`)
+    }
+
     // Human-readable label for the href value
     const hrefLabel = !hasHrefAttr
-      ? "(no href attribute)"
+      ? "(no static href attribute)"
       : hrefRaw === ""
         ? '"" (empty string)'
         : `"${hrefRaw}"`
+
+    const dynamicLabel = dynamicParts.length > 0 ? `  ⟶ dynamic: ${dynamicParts.join("; ")}` : ""
 
     // Compact outer-HTML snippet so users can locate the anchor in source
     let snippet = ""
@@ -614,7 +650,12 @@ export function checkDummyLinks($: $Type): CheckResult {
       snippet = ""
     }
 
-    dummies.push({ index: count, text, href: hrefLabel, snippet })
+    dummies.push({
+      index: count,
+      text,
+      href: hrefLabel + dynamicLabel,
+      snippet,
+    })
     count += 1
   })
 
@@ -626,8 +667,8 @@ export function checkDummyLinks($: $Type): CheckResult {
     "Dummy Links",
     "Functionality",
     "medium",
-    `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", etc.)`,
-    "Replace placeholder hrefs with real destinations or remove the link entirely.",
+    `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", empty, or no static href). Note: scanner reads server HTML only — client-side framework bindings (Vue :href, Angular [href], etc.) appear as "no static href" but the URL resolves at runtime.`,
+    "Replace placeholder hrefs with real destinations, remove the link entirely, or — if using framework bindings — verify the binding resolves to a real URL in the browser.",
     undefined,
     dummies
       .slice(0, 50)
