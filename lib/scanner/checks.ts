@@ -602,7 +602,7 @@ const DYNAMIC_HREF_ATTRS = [
 const DATA_URL_ATTRS = ["data-href", "data-url", "data-link", "data-target", "data-redirect"]
 
 export function checkDummyLinks($: $Type): CheckResult {
-  const dummies: { index: number; text: string; href: string; snippet: string }[] = []
+  const dummies: { index: number; text: string; href: string; snippet: string; devtoolsSearch: string }[] = []
   let count = 1
 
   // Framework text-binding attributes (carry the link label rendered at runtime)
@@ -726,11 +726,34 @@ export function checkDummyLinks($: $Type): CheckResult {
       snippet = ""
     }
 
+    // Build a copy-pasteable DevTools search token: a real fragment that exists in the page DOM.
+    // Priority: id → unique data-tracker-identifier → unique aria-label → first framework binding
+    // attribute → outerHTML opening tag.
+    const buildDevToolsSearch = (): string => {
+      if (attribs.id) return `#${attribs.id}`
+      if (attribs["data-tracker-identifier"] && attribs["aria-label"]) {
+        // Combine for a more unique selector pasteable into DevTools Elements search
+        return `a[aria-label="${attribs["aria-label"]}"]`
+      }
+      if (attribs["aria-label"]) return `aria-label="${attribs["aria-label"]}"`
+      // Use the first detected framework binding as the search token
+      for (const name of DYNAMIC_HREF_ATTRS) {
+        if (attribs[name] !== undefined) return `${name}="${attribs[name]}"`
+      }
+      for (const name of DATA_URL_ATTRS) {
+        if (attribs[name] !== undefined) return `${name}="${attribs[name]}"`
+      }
+      // Fall back to the opening tag from the snippet (first ~120 chars)
+      const m = snippet.match(/^<a\b[^>]*>/i)
+      return m ? m[0].slice(0, 160) : snippet.slice(0, 160)
+    }
+
     dummies.push({
       index: count,
       text,
       href: hrefLabel + dynamicLabel,
       snippet,
+      devtoolsSearch: buildDevToolsSearch(),
     })
     count += 1
   })
@@ -746,9 +769,11 @@ export function checkDummyLinks($: $Type): CheckResult {
     `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", empty, or no static href). Note: scanner reads server HTML only — client-side framework bindings (Vue :href, Angular [href], etc.) appear as "no static href" but the URL resolves at runtime.`,
     "Replace placeholder hrefs with real destinations, remove the link entirely, or — if using framework bindings — verify the binding resolves to a real URL in the browser.",
     undefined,
-    dummies
-      .slice(0, 50)
-      .map((d) => `[${d.index}] ${d.text} → href=${d.href}${d.snippet ? `  |  ${d.snippet}` : ""}`),
+    dummies.slice(0, 50).flatMap((d) => [
+      `[${d.index}] ${d.text} → href=${d.href}`,
+      `      DevTools search: ${d.devtoolsSearch}`,
+      ...(d.snippet ? [`      Source: ${d.snippet}`] : []),
+    ]),
   )
 }
 
