@@ -605,15 +605,89 @@ export function checkDummyLinks($: $Type): CheckResult {
   const dummies: { index: number; text: string; href: string; snippet: string }[] = []
   let count = 1
 
+  // Framework text-binding attributes (carry the link label rendered at runtime)
+  const TEXT_BINDING_ATTRS = [
+    "x-text",
+    "x-html",
+    "v-text",
+    "v-html",
+    ":title",
+    "v-bind:title",
+    "[innerText]",
+    "[innerHTML]",
+    "[textContent]",
+    "ng-bind",
+    "ng-bind-html",
+  ]
+
+  // Extract any useful identifying text from the anchor or its descendants so
+  // users can locate the element manually even when the visible text is
+  // rendered by JavaScript.
+  const extractIdentifyingText = (el: unknown): string => {
+    const $node = $(el as never)
+    const directText = $node.text().trim()
+    if (directText) return directText
+
+    const node = el as { attribs?: Record<string, string> }
+    const attribs = node.attribs || {}
+
+    // 1. Accessibility / SEO labels on the anchor itself
+    for (const attr of ["aria-label", "title", "data-tracker-name", "data-label", "data-text"]) {
+      if (attribs[attr]) return `${attr}="${attribs[attr]}"`
+    }
+
+    // 2. Framework text bindings on the anchor or any descendant
+    const collectBindings = (root: unknown): string | null => {
+      let found: string | null = null
+      $(root as never)
+        .find("*")
+        .addBack()
+        .each((_i, child) => {
+          if (found) return
+          const cAttribs = (child as { attribs?: Record<string, string> }).attribs || {}
+          for (const attr of TEXT_BINDING_ATTRS) {
+            if (cAttribs[attr]) {
+              found = `${attr}="${cAttribs[attr]}"`
+              return
+            }
+          }
+          // Mustache / handlebars-style interpolation inside text nodes
+          const innerHtml = $(child as never).html() || ""
+          const mustache = innerHtml.match(/\{\{\s*([^}]+?)\s*\}\}/)
+          if (mustache) {
+            found = `{{ ${mustache[1]} }}`
+          }
+        })
+      return found
+    }
+
+    const binding = collectBindings(el)
+    if (binding) return binding
+
+    // 3. Image alt text on a child image
+    const $img = $node.find("img").first()
+    if ($img.length) {
+      const alt = $img.attr("alt")
+      if (alt) return `img alt="${alt}"`
+      const src = $img.attr("src") || $img.attr(":src") || $img.attr("v-bind:src")
+      if (src) return `img src="${src}"`
+    }
+
+    return "[NO TEXT]"
+  }
+
   $("a").each((_, el) => {
     const $el = $(el)
     const hasHrefAttr = $el.attr("href") !== undefined
     const hrefRaw = $el.attr("href") || ""
     const rawText = $el.text().trim()
-    const text = cleanDummyLinkText(rawText)
+    const cleanedText = cleanDummyLinkText(rawText)
 
-    if (DUMMY_LINK_IGNORE_TEXTS.has(text.trim().toLowerCase())) return
+    if (DUMMY_LINK_IGNORE_TEXTS.has(cleanedText.trim().toLowerCase())) return
     if (!isDummyHref(hrefRaw)) return
+
+    // Prefer real text; if none, fall back to aria-label, framework bindings, or image alt.
+    const text = rawText ? cleanedText : extractIdentifyingText(el)
 
     // Look for framework binding attributes or data-* URLs that hold the real destination
     const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
