@@ -1527,13 +1527,93 @@ export function checkTocFootnotes($: $Type): CheckResult {
     }
   }
 
-export function checkGatedFormDownload($: $Type): CheckResult {
-  const form = $("form").length
-  const dl = $('a[href$=".pdf"], a[download]').length
-  if (form > 0 && dl > 0)
-    return pass("gated-form", "Gated Form Download CTA", "Functionality", `${form} form(s) and ${dl} download(s) detected`)
-  return info("gated-form", "Gated Form Download CTA", "Functionality", "No gated download pattern detected.")
-}
+  export function checkGatedFormDownload($: $Type): CheckResult {
+    const describe = (el: unknown): { reason: string; devtoolsSearch: string; snippet: string } => {
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      const $el = $(el as never)
+      let snippet = ""
+      try {
+        snippet = ($.html(el as never) || "").replace(/\s+/g, " ").trim()
+        if (snippet.length > 200) snippet = snippet.slice(0, 200) + "…"
+      } catch {
+        // ignore
+      }
+      const devtoolsSearch = attribs.id
+        ? `#${attribs.id}`
+        : attribs["aria-label"]
+          ? `aria-label="${attribs["aria-label"]}"`
+          : attribs.name
+            ? `name="${attribs.name}"`
+            : attribs.action
+              ? `action="${attribs.action}"`
+              : attribs.href
+                ? `href="${attribs.href}"`
+                : (snippet.match(/^<\w+\b[^>]*>/i)?.[0] ?? snippet).slice(0, 160)
+      const text = $el.text().trim().replace(/\s+/g, " ").slice(0, 80)
+      const labelBits = [
+        attribs.id && `id=${attribs.id}`,
+        attribs["aria-label"] && `aria-label="${attribs["aria-label"]}"`,
+        attribs.action && `action="${attribs.action}"`,
+        attribs.name && `name="${attribs.name}"`,
+        attribs.href && `href="${attribs.href}"`,
+        text && `text="${text}"`,
+      ].filter(Boolean)
+      return { reason: labelBits.join(" | ") || "(no identifying attributes)", devtoolsSearch, snippet }
+    }
+
+    const forms: ReturnType<typeof describe>[] = []
+    $("form").each((_, el) => forms.push(describe(el)))
+
+    const downloads: ReturnType<typeof describe>[] = []
+    $('a[href$=".pdf" i], a[download], a[href*=".pdf?" i]').each((_, el) => downloads.push(describe(el)))
+
+    if (forms.length === 0 && downloads.length === 0) {
+      return info("gated-form", "Gated Form Download CTA", "Functionality", "No gated download pattern detected.")
+    }
+
+    // Heuristic: a true gating association requires the form OR a download to mention
+    // gating/resource terminology. Without that, we can't infer that the form actually
+    // gates the download (it might be a newsletter/search/contact form unrelated to any PDF).
+    const GATING_TERMS =
+      /\b(gated|download|get the (report|guide|paper)|white\s?paper|whitepaper|e-?book|case study|resource|register|request|access|unlock|get access)\b/i
+    const anyGatingSignal =
+      forms.some((f) => GATING_TERMS.test(f.reason) || GATING_TERMS.test(f.snippet)) ||
+      downloads.some((d) => GATING_TERMS.test(d.reason) || GATING_TERMS.test(d.snippet))
+
+    const headline =
+      forms.length > 0 && downloads.length > 0
+        ? `${forms.length} form(s) and ${downloads.length} download(s) detected${
+            anyGatingSignal ? "" : " — no gating association inferred (forms may be unrelated to downloads)"
+          }`
+        : forms.length > 0
+          ? `${forms.length} form(s) detected, no downloads found`
+          : `${downloads.length} download(s) detected, no forms found`
+
+    const evidence: string[] = []
+    if (forms.length > 0) {
+      evidence.push(`Forms (${forms.length}):`)
+      forms.slice(0, 20).forEach((f, i) => {
+        evidence.push(`  [F${i + 1}] ${f.reason}`)
+        evidence.push(`        DevTools search: ${f.devtoolsSearch}`)
+        evidence.push(`        Source: ${f.snippet}`)
+      })
+    }
+    if (downloads.length > 0) {
+      evidence.push(`Downloads (${downloads.length}):`)
+      downloads.slice(0, 20).forEach((d, i) => {
+        evidence.push(`  [D${i + 1}] ${d.reason}`)
+        evidence.push(`        DevTools search: ${d.devtoolsSearch}`)
+        evidence.push(`        Source: ${d.snippet}`)
+      })
+    }
+
+    const base =
+      forms.length > 0 && downloads.length > 0 && anyGatingSignal
+        ? pass("gated-form", "Gated Form Download CTA", "Functionality", headline)
+        : info("gated-form", "Gated Form Download CTA", "Functionality", headline)
+
+    return { ...base, evidence }
+  }
 
 export function checkGatedPdfPath(links: LinkInfo[]): CheckResult {
   const pdfs = links.filter((l) => l.type === "pdf")
