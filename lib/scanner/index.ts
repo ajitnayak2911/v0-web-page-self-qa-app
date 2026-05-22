@@ -59,6 +59,30 @@ export async function runScan(
   const $ = cheerio.load(fetched.html)
   const baseUrl = new URL(fetched.finalUrl || url.toString())
 
+  // Strip global site chrome (header, footer, cookie banners) so QA checks only
+  // evaluate the page-specific content. These elements are shared across every
+  // page on the site and produce noise in checks like Dummy Links, CTA Text,
+  // Gated Form, External New Tab, etc.
+  const CHROME_SELECTORS = [
+    "header",
+    "footer",
+    '[data-component="Header" i]',
+    '[data-component="Footer" i]',
+    "#site-header",
+    "#footer-section",
+    ".site-header",
+    ".site-footer",
+    ".footer",
+    '[role="banner"]',
+    '[role="contentinfo"]',
+    // Common cookie / consent banners
+    "#onetrust-banner-sdk",
+    "#onetrust-consent-sdk",
+    "#cookie-banner",
+    ".cookie-banner",
+  ].join(", ")
+  $(CHROME_SELECTORS).remove()
+
   // Extracts
   const headings = C.extractHeadings($)
   const images = C.extractImages($, baseUrl)
