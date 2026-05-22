@@ -417,13 +417,15 @@ export function checkLinkBehaviorAudit(
     )
 
   if (failures.length === 0 && unhealthy.length === 0)
-    return pass(
-      "link-behavior-audit",
-      "Link Behavior Audit",
-      "Links",
-      `${rows.length} link(s) audited - all targets correct and healthy`,
-      undefined,
-    )
+    return {
+      ...pass(
+        "link-behavior-audit",
+        "Link Behavior Audit",
+        "Links",
+        `${rows.length} link(s) audited - all targets correct and healthy`,
+      ),
+      evidence,
+    }
 
   const sev: Severity = failures.length > 0 ? "medium" : "low"
   const msgs: string[] = []
