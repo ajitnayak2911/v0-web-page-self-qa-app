@@ -585,19 +585,36 @@ function cleanDummyLinkText(text: string): string {
 }
 
 export function checkDummyLinks($: $Type): CheckResult {
-  const dummies: { index: number; text: string; href: string }[] = []
+  const dummies: { index: number; text: string; href: string; snippet: string }[] = []
   let count = 1
 
   $("a").each((_, el) => {
     const $el = $(el)
-    const href = $el.attr("href") || ""
+    const hasHrefAttr = $el.attr("href") !== undefined
+    const hrefRaw = $el.attr("href") || ""
     const rawText = $el.text().trim()
     const text = cleanDummyLinkText(rawText)
 
     if (DUMMY_LINK_IGNORE_TEXTS.has(text.trim().toLowerCase())) return
-    if (!isDummyHref(href)) return
+    if (!isDummyHref(hrefRaw)) return
 
-    dummies.push({ index: count, text, href: href || "(empty)" })
+    // Human-readable label for the href value
+    const hrefLabel = !hasHrefAttr
+      ? "(no href attribute)"
+      : hrefRaw === ""
+        ? '"" (empty string)'
+        : `"${hrefRaw}"`
+
+    // Compact outer-HTML snippet so users can locate the anchor in source
+    let snippet = ""
+    try {
+      snippet = ($.html(el) || "").replace(/\s+/g, " ").trim()
+      if (snippet.length > 240) snippet = snippet.slice(0, 240) + "…"
+    } catch {
+      snippet = ""
+    }
+
+    dummies.push({ index: count, text, href: hrefLabel, snippet })
     count += 1
   })
 
@@ -612,7 +629,9 @@ export function checkDummyLinks($: $Type): CheckResult {
     `${dummies.length} dummy link(s) found (href="#", "javascript:void(0)", etc.)`,
     "Replace placeholder hrefs with real destinations or remove the link entirely.",
     undefined,
-    dummies.slice(0, 50).map((d) => `[${d.index}] ${d.text} → href=${d.href}`),
+    dummies
+      .slice(0, 50)
+      .map((d) => `[${d.index}] ${d.text} → href=${d.href}${d.snippet ? `  |  ${d.snippet}` : ""}`),
   )
 }
 
