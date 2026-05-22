@@ -1248,7 +1248,10 @@ export function checkCtaText($: $Type): CheckResult {
       undefined,
       generic,
     )
-  return pass("cta", "CTA Text", "Content", `${ctas.length} CTA(s) reviewed`)
+  return {
+    ...pass("cta", "CTA Text", "Content", `${ctas.length} CTA(s) reviewed`),
+    evidence: ctas.slice(0, 100).map((t, i) => `[${i + 1}] "${t}"`),
+  }
 }
 
 // ---------- TECHNICAL ----------
