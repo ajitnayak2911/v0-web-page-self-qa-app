@@ -1424,11 +1424,108 @@ export function checkTocFootnotes($: $Type): CheckResult {
   return pass("toc-fn", "Table of Contents & Footnotes", "Content", parts.join(", "))
 }
 
-export function checkInsightsFilter($: $Type): CheckResult {
-  const filters = $('[class*="filter" i] select, [class*="filter" i] button, [data-filter]').length
-  if (filters === 0) return info("insights-filter", "Insights Hub Filter", "Functionality", "No filter UI detected.")
-  return pass("insights-filter", "Insights Hub Filter", "Functionality", `${filters} filter control(s) detected (manual test recommended)`)
-}
+  export function checkInsightsFilter($: $Type): CheckResult {
+    // Tailwind / utility class fragments that contain the word "filter" but are NOT filter UI.
+    const UTILITY_FILTER_CLASS = /^(backdrop-filter|filter-none|filter-blur|drop-shadow-filter|filter|filters?-[a-z]+-blur|backdrop-blur)$/i
+
+    const hasMeaningfulFilterClass = (className: string): boolean => {
+      const tokens = className.split(/\s+/).filter(Boolean)
+      const filterTokens = tokens.filter((t) => /filter/i.test(t))
+      if (filterTokens.length === 0) return false
+      return filterTokens.some((t) => !UTILITY_FILTER_CLASS.test(t))
+    }
+
+    const matches: { reason: string; snippet: string; devtoolsSearch: string }[] = []
+    const seen = new Set<unknown>()
+
+    const record = (el: unknown, reason: string) => {
+      if (seen.has(el)) return
+      seen.add(el)
+      const $el = $(el as never)
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      let snippet = ""
+      try {
+        snippet = ($.html(el as never) || "").replace(/\s+/g, " ").trim()
+        if (snippet.length > 200) snippet = snippet.slice(0, 200) + "…"
+      } catch {
+        // ignore
+      }
+      const devtoolsSearch = attribs.id
+        ? `#${attribs.id}`
+        : attribs["aria-label"]
+          ? `aria-label="${attribs["aria-label"]}"`
+          : attribs["data-filter"] !== undefined
+            ? `data-filter="${attribs["data-filter"]}"`
+            : (snippet.match(/^<\w+\b[^>]*>/i)?.[0] ?? snippet).slice(0, 160)
+      const text = $el.text().trim().replace(/\s+/g, " ").slice(0, 60)
+      matches.push({
+        reason: `${reason}${text ? ` — "${text}"` : ""}`,
+        snippet,
+        devtoolsSearch,
+      })
+    }
+
+    // 1) Explicit data attributes used by real filter UIs
+    $("[data-filter], [data-facet], [data-filter-group], [data-filter-name]").each((_, el) => {
+      record(el, "data-filter attribute")
+    })
+
+    // 2) Containers whose class/id meaningfully mentions "filter" — must contain a real control
+    $("[class], [id]").each((_, el) => {
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      const cls = attribs.class || ""
+      const id = attribs.id || ""
+      const classOk = cls && hasMeaningfulFilterClass(cls)
+      const idOk = id && /filter/i.test(id) && !/^(filter|backdrop-filter)$/i.test(id)
+      if (!classOk && !idOk) return
+      const $el = $(el as never)
+      const innerControls = $el.find("select, button, input[type='checkbox'], input[type='radio'], [role='listbox'], [role='combobox']").length
+      const role = (attribs.role || "").toLowerCase()
+      const ariaLabel = (attribs["aria-label"] || "").toLowerCase()
+      if (innerControls === 0 && role !== "search" && !/filter|sort/.test(ariaLabel)) return
+      record(el, `class/id mentions "filter"`)
+    })
+
+    // 3) Form controls whose own label/name/id explicitly references filter or sort by
+    $("select, button, input").each((_, el) => {
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      const bag = [
+        attribs["aria-label"],
+        attribs["name"],
+        attribs["id"],
+        attribs["data-tracker-identifier"],
+        attribs["data-label"],
+        $(el as never).text(),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+      if (/\b(filter|filters|sort by|sort-by|facet)\b/.test(bag)) {
+        record(el, "control label mentions filter/sort")
+      }
+    })
+
+    // 4) Elements explicitly marked as the search/filter region
+    $('[role="search"]').each((_, el) => record(el, 'role="search"'))
+
+    if (matches.length === 0) {
+      return info("insights-filter", "Insights Hub Filter", "Functionality", "No filter UI detected.")
+    }
+
+    return {
+      ...pass(
+        "insights-filter",
+        "Insights Hub Filter",
+        "Functionality",
+        `${matches.length} filter control(s) detected (manual test recommended)`,
+      ),
+      evidence: matches.slice(0, 30).flatMap((m, i) => [
+        `[${i + 1}] ${m.reason}`,
+        `      DevTools search: ${m.devtoolsSearch}`,
+        `      Source: ${m.snippet}`,
+      ]),
+    }
+  }
 
 export function checkGatedFormDownload($: $Type): CheckResult {
   const form = $("form").length
