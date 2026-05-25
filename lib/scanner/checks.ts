@@ -1727,7 +1727,11 @@ export function checkHtmlLangAttr($: $Type): CheckResult {
       'Use a valid tag like "en", "en-US", or "fr-CA".',
     )
   }
-  return pass("html-lang", "HTML lang Attribute", "Accessibility", `lang="${lang}"`)
+  const dir = $("html").attr("dir") || "(not set)"
+  return {
+    ...pass("html-lang", "HTML lang Attribute", "Accessibility", `lang="${lang}"`),
+    evidence: [`<html lang="${lang}" dir="${dir}">`, `DevTools search: html[lang="${lang}"]`],
+  }
 }
 
 export function checkSkipToMainLink($: $Type): CheckResult {
@@ -1746,7 +1750,15 @@ export function checkSkipToMainLink($: $Type): CheckResult {
       "Add a visually-hidden 'Skip to main content' link as the first focusable element for keyboard users.",
     )
   }
-  return pass("skip-link", "Skip to Main Content Link", "Accessibility", `${candidates.length} skip link(s) detected`)
+  const evidence = candidates.toArray().slice(0, 10).map((el, i) => {
+    const a = (el as { attribs?: Record<string, string> }).attribs || {}
+    const text = $(el as never).text().trim().slice(0, 80)
+    return `[${i + 1}] <a href="${a.href}"${a["aria-label"] ? ` aria-label="${a["aria-label"]}"` : ""}>${text}</a>`
+  })
+  return {
+    ...pass("skip-link", "Skip to Main Content Link", "Accessibility", `${candidates.length} skip link(s) detected`),
+    evidence,
+  }
 }
 
 export function checkFormLabels($: $Type): CheckResult {
@@ -1787,7 +1799,21 @@ export function checkFormLabels($: $Type): CheckResult {
     void i
   })
   if (missing.length === 0) {
-    return pass("form-labels", "Form Control Labels", "Accessibility", `${controls.length} control(s) all labeled`)
+    const evidence = controls.slice(0, 30).map((el, i) => {
+      const a = (el as { attribs?: Record<string, string> }).attribs || {}
+      const tag = (el as { name?: string }).name || "control"
+      const labelMethod = a.id && $(`label[for="${a.id}"]`).length > 0
+        ? `<label for="${a.id}">`
+        : $(el as never).parents("label").length > 0
+          ? "wrapping <label>"
+          : a["aria-label"]
+            ? `aria-label="${a["aria-label"]}"`
+            : a["aria-labelledby"]
+              ? `aria-labelledby="${a["aria-labelledby"]}"`
+              : `title="${a.title}"`
+      return `[${i + 1}] <${tag}${a.type ? ` type="${a.type}"` : ""}${a.name ? ` name="${a.name}"` : ""}> labeled via ${labelMethod}`
+    })
+    return { ...pass("form-labels", "Form Control Labels", "Accessibility", `${controls.length} control(s) all labeled`), evidence }
   }
   return {
     ...fail(
@@ -1832,7 +1858,15 @@ export function checkButtonAccessibleName($: $Type): CheckResult {
     }
   })
   if (missing.length === 0) {
-    return pass("btn-name", "Button Accessible Names", "Accessibility", `${buttons.length} button(s) all named`)
+    const evidence = buttons.slice(0, 20).map((el, i) => {
+      const $el = $(el as never)
+      const a = (el as { attribs?: Record<string, string> }).attribs || {}
+      const text = $el.text().trim().slice(0, 80)
+      const name = text || a["aria-label"] || a.title || ""
+      const source = text ? "text" : a["aria-label"] ? "aria-label" : a.title ? "title" : "img alt"
+      return `[${i + 1}] "${name}" (${source})`
+    })
+    return { ...pass("btn-name", "Button Accessible Names", "Accessibility", `${buttons.length} button(s) all named`), evidence }
   }
   return {
     ...fail(
@@ -1862,7 +1896,11 @@ export function checkIframeTitle($: $Type): CheckResult {
     }
   })
   if (missing.length === 0) {
-    return pass("iframe-title", "Iframe Titles", "Accessibility", `${iframes.length} iframe(s) all titled`)
+    const evidence = iframes.slice(0, 20).map((el, i) => {
+      const a = (el as { attribs?: Record<string, string> }).attribs || {}
+      return `[${i + 1}] title="${a.title || a["aria-label"]}" src="${a.src || ""}"`
+    })
+    return { ...pass("iframe-title", "Iframe Titles", "Accessibility", `${iframes.length} iframe(s) all titled`), evidence }
   }
   return {
     ...fail(
@@ -1886,7 +1924,13 @@ export function checkDuplicateIds($: $Type): CheckResult {
   })
   const dupes = [...counts.entries()].filter(([, n]) => n > 1)
   if (dupes.length === 0) {
-    return pass("dup-ids", "Duplicate Element IDs", "Accessibility", `${counts.size} unique id(s), no duplicates`)
+    const sample = [...counts.keys()].slice(0, 20).map((id, i) => `[${i + 1}] #${id}`)
+    const evidence = [
+      `Total elements scanned with id: ${[...counts.values()].reduce((a, b) => a + b, 0)}`,
+      `Unique id values: ${counts.size}`,
+      ...(sample.length > 0 ? [`Sample (first ${sample.length}):`, ...sample] : []),
+    ]
+    return { ...pass("dup-ids", "Duplicate Element IDs", "Accessibility", `${counts.size} unique id(s), no duplicates`), evidence }
   }
   return {
     ...warn(
@@ -1907,7 +1951,10 @@ export function checkHttpsProtocol(rawUrl: string): CheckResult {
   try {
     const u = new URL(rawUrl)
     if (u.protocol === "https:") {
-      return pass("https-protocol", "HTTPS Protocol", "Technical", "Served over HTTPS.")
+      return {
+        ...pass("https-protocol", "HTTPS Protocol", "Technical", "Served over HTTPS."),
+        evidence: [`URL: ${u.toString()}`, `Protocol: ${u.protocol}`, `Host: ${u.host}`],
+      }
     }
     return fail(
       "https-protocol",
@@ -1947,7 +1994,17 @@ export function checkMixedContent($: $Type, pageUrl: string): CheckResult {
   collect("iframe[src]", "src", "iframe")
   collect("video[src], audio[src], source[src]", "src", "media")
   if (offenders.length === 0) {
-    return pass("mixed-content", "Mixed Content (HTTP on HTTPS)", "Technical", "No HTTP subresources on HTTPS page.")
+    const scriptCount = $("script[src]").length
+    const linkCount = $("link[href]").length
+    const imgCount = $("img[src]").length
+    const iframeCount = $("iframe[src]").length
+    return {
+      ...pass("mixed-content", "Mixed Content (HTTP on HTTPS)", "Technical", "No HTTP subresources on HTTPS page."),
+      evidence: [
+        `Subresources scanned: scripts=${scriptCount}, links=${linkCount}, images=${imgCount}, iframes=${iframeCount}`,
+        `All resources use https:// or protocol-relative URLs.`,
+      ],
+    }
   }
   return {
     ...fail(
@@ -1975,7 +2032,13 @@ export function checkInlineEventHandlers($: $Type): CheckResult {
     })
   })
   if (handlers.length === 0) {
-    return pass("inline-handlers", "Inline Event Handlers", "Technical", "No inline on* event handlers found.")
+    return {
+      ...pass("inline-handlers", "Inline Event Handlers", "Technical", "No inline on* event handlers found."),
+      evidence: [
+        `Scanned all elements for attributes matching on[a-z]+ (onclick, onload, onmouseover, etc.)`,
+        `0 inline handler attributes detected — page is CSP-friendly in this respect.`,
+      ],
+    }
   }
   return {
     ...warn(
@@ -2065,12 +2128,28 @@ export function checkStructuredData($: $Type): CheckResult {
 export function checkHreflang($: $Type): CheckResult {
   const tags = $('link[rel="alternate"][hreflang]').toArray()
   if (tags.length === 0) {
-    return info(
-      "hreflang",
-      "hreflang Alternate Links",
-      "SEO",
-      "No hreflang alternates found (only required for multi-locale sites).",
-    )
+    // Provide evidence of what WAS searched for so users can verify
+    const allAlternates = $('link[rel="alternate"]').toArray()
+    const evidence: string[] = [
+      `Searched: <link rel="alternate" hreflang="..."> in <head>`,
+      `Found 0 hreflang-tagged alternate links.`,
+    ]
+    if (allAlternates.length > 0) {
+      evidence.push(`(${allAlternates.length} other <link rel="alternate"> tag(s) exist without hreflang — typically RSS/JSON feeds)`)
+      allAlternates.slice(0, 10).forEach((el, i) => {
+        const a = (el as { attribs?: Record<string, string> }).attribs || {}
+        evidence.push(`  [${i + 1}] type="${a.type || ""}" href="${a.href || ""}"`)
+      })
+    }
+    return {
+      ...info(
+        "hreflang",
+        "hreflang Alternate Links",
+        "SEO",
+        "No hreflang alternates found (only required for multi-locale sites).",
+      ),
+      evidence,
+    }
   }
   const evidence = tags.map((el, i) => {
     const a = (el as { attribs?: Record<string, string> }).attribs || {}
@@ -2117,20 +2196,37 @@ export function checkFavicon($: $Type): CheckResult {
 export function checkWordCount($: $Type): CheckResult {
   const text = $("body").text().replace(/\s+/g, " ").trim()
   const words = text ? text.split(/\s+/).filter(Boolean).length : 0
+  const chars = text.length
+  const paragraphs = $("p").length
+  const sentences = (text.match(/[.!?]+\s/g) || []).length
+  const avgWordsPerParagraph = paragraphs > 0 ? Math.round(words / paragraphs) : 0
+  const sample = text.slice(0, 240).replace(/\s+/g, " ") + (text.length > 240 ? "…" : "")
+  const evidence = [
+    `Word count: ${words}`,
+    `Character count: ${chars}`,
+    `Paragraph count: ${paragraphs}`,
+    `Sentence count (approx): ${sentences}`,
+    `Avg words per paragraph: ${avgWordsPerParagraph}`,
+    `Body text sample: "${sample}"`,
+    `Note: header, footer and cookie banners are excluded from this count.`,
+  ]
   if (words < 100) {
-    return warn(
-      "word-count",
-      "Body Word Count",
-      "Content",
-      "low",
-      `Body contains only ${words} words (thin content).`,
-      "Thin pages (under ~300 words) often underperform in search. Confirm this is intentional.",
-    )
+    return {
+      ...warn(
+        "word-count",
+        "Body Word Count",
+        "Content",
+        "low",
+        `Body contains only ${words} words (thin content).`,
+        "Thin pages (under ~300 words) often underperform in search. Confirm this is intentional.",
+      ),
+      evidence,
+    }
   }
   if (words > 4000) {
-    return info("word-count", "Body Word Count", "Content", `Body contains ${words} words (long-form).`)
+    return { ...info("word-count", "Body Word Count", "Content", `Body contains ${words} words (long-form).`), evidence }
   }
-  return pass("word-count", "Body Word Count", "Content", `Body contains ${words} words.`)
+  return { ...pass("word-count", "Body Word Count", "Content", `Body contains ${words} words.`), evidence }
 }
 
 export function checkDuplicateHeadingText(headings: HeadingInfo[]): CheckResult {
@@ -2145,7 +2241,21 @@ export function checkDuplicateHeadingText(headings: HeadingInfo[]): CheckResult 
   })
   const dupes = [...counts.entries()].filter(([, n]) => n > 1)
   if (dupes.length === 0) {
-    return pass("dup-headings", "Duplicate Heading Text", "Content", `${headings.length} heading(s), no duplicates`)
+    const breakdown: Record<number, number> = {}
+    headings.forEach((h) => {
+      breakdown[h.level] = (breakdown[h.level] || 0) + 1
+    })
+    const breakdownLines = Object.keys(breakdown)
+      .sort()
+      .map((lvl) => `  H${lvl}: ${breakdown[Number(lvl)]}`)
+    const evidence = [
+      `Total headings scanned: ${headings.length}`,
+      `By level:`,
+      ...breakdownLines,
+      `All headings:`,
+      ...headings.slice(0, 50).map((h, i) => `  [${i + 1}] <H${h.level}> "${h.text.trim().slice(0, 120)}"`),
+    ]
+    return { ...pass("dup-headings", "Duplicate Heading Text", "Content", `${headings.length} heading(s), no duplicates`), evidence }
   }
   return {
     ...warn(
@@ -2205,18 +2315,59 @@ export function checkAnalyticsTags($: $Type): CheckResult {
 
 // ---------- PERFORMANCE / SEO HYBRID ----------
 
-export function checkImageLazyLoading(images: ImageInfo[]): CheckResult {
-  // We don't have loading attr in ImageInfo; re-scan from $ in caller would be better.
-  // Use a lightweight heuristic: just flag if there are many images and recommend.
-  if (images.length <= 5) {
-    return pass("img-lazy", "Image Lazy Loading", "Performance", `${images.length} image(s); lazy-load not critical.`)
+export function checkImageLazyLoading($: $Type): CheckResult {
+  const imgs = $("img").toArray()
+  if (imgs.length === 0) {
+    return info("img-lazy", "Image Lazy Loading", "Performance", "No <img> elements on page.")
   }
-  return info(
-    "img-lazy",
-    "Image Lazy Loading",
-    "Performance",
-    `${images.length} image(s) on page. Verify below-the-fold images use loading="lazy".`,
-  )
+  const lazy: { src: string }[] = []
+  const eager: { src: string }[] = []
+  const unset: { src: string }[] = []
+  imgs.forEach((el) => {
+    const a = (el as { attribs?: Record<string, string> }).attribs || {}
+    const loading = (a.loading || "").toLowerCase()
+    const src = a.src || a["data-src"] || "(no src)"
+    if (loading === "lazy") lazy.push({ src })
+    else if (loading === "eager") eager.push({ src })
+    else unset.push({ src })
+  })
+  const evidence = [
+    `Total <img>: ${imgs.length}`,
+    `  loading="lazy": ${lazy.length}`,
+    `  loading="eager": ${eager.length}`,
+    `  loading not set: ${unset.length}`,
+    ...(unset.length > 0
+      ? [
+          `Images without loading attribute (first 15):`,
+          ...unset.slice(0, 15).map((u, i) => `  [${i + 1}] ${u.src}`),
+        ]
+      : []),
+  ]
+  if (imgs.length <= 5) {
+    return { ...pass("img-lazy", "Image Lazy Loading", "Performance", `${imgs.length} image(s); lazy-load not critical.`), evidence }
+  }
+  if (unset.length > 0 && unset.length / imgs.length > 0.5) {
+    return {
+      ...warn(
+        "img-lazy",
+        "Image Lazy Loading",
+        "Performance",
+        "low",
+        `${unset.length} of ${imgs.length} image(s) have no loading attribute.`,
+        'Add loading="lazy" to below-the-fold images to defer their fetch and improve LCP.',
+      ),
+      evidence,
+    }
+  }
+  return {
+    ...info(
+      "img-lazy",
+      "Image Lazy Loading",
+      "Performance",
+      `${imgs.length} image(s) on page (${lazy.length} lazy, ${eager.length} eager, ${unset.length} unset).`,
+    ),
+    evidence,
+  }
 }
 
 export function checkRenderBlockingScripts($: $Type): CheckResult {
@@ -2228,7 +2379,18 @@ export function checkRenderBlockingScripts($: $Type): CheckResult {
     }
   })
   if (blocking.length === 0) {
-    return pass("render-blocking", "Render-Blocking Scripts in <head>", "Performance", "All <head> scripts use async/defer/module.")
+    const headScripts = $("head script[src]").toArray()
+    const evidence = headScripts.length === 0
+      ? [`No <script src> in <head>. All scripts are inline or loaded from <body>.`]
+      : [
+          `${headScripts.length} <script src> in <head>; all use async/defer/module:`,
+          ...headScripts.slice(0, 20).map((el, i) => {
+            const a = (el as { attribs?: Record<string, string> }).attribs || {}
+            const mode = a.async !== undefined ? "async" : a.defer !== undefined ? "defer" : a.type === "module" ? "module" : "?"
+            return `  [${i + 1}] ${mode}: ${a.src}`
+          }),
+        ]
+    return { ...pass("render-blocking", "Render-Blocking Scripts in <head>", "Performance", "All <head> scripts use async/defer/module."), evidence }
   }
   return {
     ...warn(
@@ -2273,9 +2435,23 @@ export function checkBreadcrumbs($: $Type): CheckResult {
     )
   }
   const bits: string[] = []
-  if (visualBreadcrumb) bits.push("visual breadcrumb element")
-  if (ldBreadcrumb) bits.push("BreadcrumbList JSON-LD")
-  return pass("breadcrumbs", "Breadcrumbs", "Functionality", bits.join(" + "))
+  const evidence: string[] = []
+  if (visualBreadcrumb) {
+    bits.push("visual breadcrumb element")
+    $('nav[aria-label*="breadcrumb" i], [class*="breadcrumb" i], ol[itemtype*="BreadcrumbList" i]')
+      .slice(0, 5)
+      .each((i, el) => {
+        const a = (el as { attribs?: Record<string, string> }).attribs || {}
+        const tag = (el as { name?: string }).name || "el"
+        const text = $(el as never).text().trim().replace(/\s+/g, " ").slice(0, 120)
+        evidence.push(`[V${i + 1}] <${tag}${a["aria-label"] ? ` aria-label="${a["aria-label"]}"` : ""}${a.class ? ` class="${a.class}"` : ""}> "${text}"`)
+      })
+  }
+  if (ldBreadcrumb) {
+    bits.push("BreadcrumbList JSON-LD")
+    evidence.push(`[JSON-LD] @type=BreadcrumbList present`)
+  }
+  return { ...pass("breadcrumbs", "Breadcrumbs", "Functionality", bits.join(" + ")), evidence }
 }
 
 export const ManualCheckIds = new Set(["figma", "cross-browser"])

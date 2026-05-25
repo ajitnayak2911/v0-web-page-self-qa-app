@@ -183,7 +183,7 @@ export async function runScan(
     // ----- Analytics -----
     C.checkAnalyticsTags($),
     // ----- Performance additions -----
-    C.checkImageLazyLoading(images),
+    C.checkImageLazyLoading($),
     C.checkRenderBlockingScripts($),
     // ----- Functionality additions -----
     C.checkBreadcrumbs($),
