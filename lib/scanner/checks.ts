@@ -1562,10 +1562,14 @@ export function checkTocFootnotes($: $Type): CheckResult {
     }
 
     const forms: ReturnType<typeof describe>[] = []
-    $("form").each((_, el) => forms.push(describe(el)))
+    $("form").each((_, el) => {
+      forms.push(describe(el))
+    })
 
     const downloads: ReturnType<typeof describe>[] = []
-    $('a[href$=".pdf" i], a[download], a[href*=".pdf?" i]').each((_, el) => downloads.push(describe(el)))
+    $('a[href$=".pdf" i], a[download], a[href*=".pdf?" i]').each((_, el) => {
+      downloads.push(describe(el))
+    })
 
     if (forms.length === 0 && downloads.length === 0) {
       return info("gated-form", "Gated Form Download CTA", "Functionality", "No gated download pattern detected.")
