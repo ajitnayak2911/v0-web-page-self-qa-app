@@ -111,7 +111,8 @@ export default function HomePage() {
                 <div className="h-1 w-10 rounded-full bg-primary mb-4" />
                 <h3 className="text-lg font-semibold text-foreground">Actionable Report</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Severity-tagged findings with evidence and suggested fixes. Export as JSON for tickets.
+                  Severity-tagged findings with evidence and suggested fixes. Export a formatted Excel report with a
+                  pass/fail chart, ready to attach to email.
                 </p>
               </article>
             </div>
