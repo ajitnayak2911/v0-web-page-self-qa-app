@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { exportReportToExcel } from "@/lib/excel-export"
 import type { CheckResult, ScanReport } from "@/lib/scanner/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -128,14 +129,16 @@ export function ScanReportView({ report }: { report: ScanReport }) {
     return true
   })
 
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `qa-scan-${new Date().toISOString().slice(0, 19)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+  const [exporting, setExporting] = useState(false)
+  async function handleExportExcel() {
+    try {
+      setExporting(true)
+      await exportReportToExcel(report)
+    } catch (err) {
+      console.error("[v0] Excel export failed:", err)
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -148,9 +151,9 @@ export function ScanReportView({ report }: { report: ScanReport }) {
           <TabsTrigger value="headings">Headings ({report.headings.length})</TabsTrigger>
           <TabsTrigger value="meta">Metadata</TabsTrigger>
         </TabsList>
-        <Button variant="outline" size="sm" onClick={exportJson}>
+        <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={exporting}>
           <Download className="h-4 w-4 mr-2" />
-          Export JSON
+          {exporting ? "Generating..." : "Export Excel"}
         </Button>
       </div>
 
