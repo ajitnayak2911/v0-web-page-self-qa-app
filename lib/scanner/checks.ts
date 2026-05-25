@@ -1699,4 +1699,579 @@ export function checkCrossBrowser(): CheckResult {
   )
 }
 
+// ---------- ACCESSIBILITY ADDITIONS ----------
+
+export function checkHtmlLangAttr($: $Type): CheckResult {
+  const lang = $("html").attr("lang")
+  if (!lang) {
+    return fail(
+      "html-lang",
+      "HTML lang Attribute",
+      "Accessibility",
+      "high",
+      "<html> is missing the lang attribute.",
+      'Set <html lang="en"> (or the appropriate locale) so screen readers use the correct pronunciation rules.',
+    )
+  }
+  if (!/^[a-zA-Z]{2,3}(-[A-Za-z0-9]+)*$/.test(lang)) {
+    return warn(
+      "html-lang",
+      "HTML lang Attribute",
+      "Accessibility",
+      "medium",
+      `<html lang="${lang}"> does not look like a valid BCP 47 tag.`,
+      'Use a valid tag like "en", "en-US", or "fr-CA".',
+    )
+  }
+  return pass("html-lang", "HTML lang Attribute", "Accessibility", `lang="${lang}"`)
+}
+
+export function checkSkipToMainLink($: $Type): CheckResult {
+  const candidates = $('a[href^="#"]').filter((_i, el) => {
+    const text = $(el).text().trim().toLowerCase()
+    const aria = ($(el).attr("aria-label") || "").toLowerCase()
+    return /skip( to)?\s+(main|content|navigation)/.test(text) || /skip( to)?\s+(main|content|navigation)/.test(aria)
+  })
+  if (candidates.length === 0) {
+    return warn(
+      "skip-link",
+      "Skip to Main Content Link",
+      "Accessibility",
+      "medium",
+      "No 'Skip to main content' link found.",
+      "Add a visually-hidden 'Skip to main content' link as the first focusable element for keyboard users.",
+    )
+  }
+  return pass("skip-link", "Skip to Main Content Link", "Accessibility", `${candidates.length} skip link(s) detected`)
+}
+
+export function checkFormLabels($: $Type): CheckResult {
+  const controls = $("input, select, textarea").toArray().filter((el) => {
+    const type = ($(el as never).attr("type") || "").toLowerCase()
+    return !["hidden", "submit", "button", "reset", "image"].includes(type)
+  })
+  if (controls.length === 0) {
+    return info("form-labels", "Form Control Labels", "Accessibility", "No labelable form controls found.")
+  }
+  const missing: string[] = []
+  controls.forEach((el, i) => {
+    const $el = $(el as never)
+    const id = $el.attr("id")
+    const ariaLabel = $el.attr("aria-label")
+    const ariaLabelledBy = $el.attr("aria-labelledby")
+    const title = $el.attr("title")
+    const placeholder = $el.attr("placeholder")
+    const hasLabelFor = id ? $(`label[for="${id}"]`).length > 0 : false
+    const wrappedByLabel = $el.parents("label").length > 0
+    if (!hasLabelFor && !wrappedByLabel && !ariaLabel && !ariaLabelledBy && !title) {
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      let snippet = ""
+      try {
+        snippet = ($.html(el as never) || "").replace(/\s+/g, " ").trim().slice(0, 180)
+      } catch {
+        // ignore
+      }
+      const search = id
+        ? `#${id}`
+        : attribs.name
+          ? `name="${attribs.name}"`
+          : placeholder
+            ? `placeholder="${placeholder}"`
+            : snippet.slice(0, 120)
+      missing.push(`[${missing.length + 1}] <${(el as { name?: string }).name || "control"}> ${search}  |  ${snippet}`)
+    }
+    void i
+  })
+  if (missing.length === 0) {
+    return pass("form-labels", "Form Control Labels", "Accessibility", `${controls.length} control(s) all labeled`)
+  }
+  return {
+    ...fail(
+      "form-labels",
+      "Form Control Labels",
+      "Accessibility",
+      "high",
+      `${missing.length} of ${controls.length} form control(s) missing an accessible label.`,
+      "Add a <label for> association, wrap the control in <label>, or set aria-label / aria-labelledby.",
+    ),
+    evidence: missing.slice(0, 30),
+  }
+}
+
+export function checkButtonAccessibleName($: $Type): CheckResult {
+  const buttons = $("button, [role='button']").toArray()
+  if (buttons.length === 0) {
+    return info("btn-name", "Button Accessible Names", "Accessibility", "No buttons found.")
+  }
+  const missing: string[] = []
+  buttons.forEach((el) => {
+    const $el = $(el as never)
+    const text = $el.text().trim()
+    const ariaLabel = $el.attr("aria-label")
+    const ariaLabelledBy = $el.attr("aria-labelledby")
+    const title = $el.attr("title")
+    const hasImgAlt = $el.find("img[alt]").filter((_i, img) => !!($(img as never).attr("alt") || "").trim()).length > 0
+    if (!text && !ariaLabel && !ariaLabelledBy && !title && !hasImgAlt) {
+      const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+      let snippet = ""
+      try {
+        snippet = ($.html(el as never) || "").replace(/\s+/g, " ").trim().slice(0, 180)
+      } catch {
+        // ignore
+      }
+      const search = attribs.id
+        ? `#${attribs.id}`
+        : attribs.class
+          ? `.${attribs.class.split(/\s+/)[0]}`
+          : snippet.slice(0, 120)
+      missing.push(`[${missing.length + 1}] ${search}  |  ${snippet}`)
+    }
+  })
+  if (missing.length === 0) {
+    return pass("btn-name", "Button Accessible Names", "Accessibility", `${buttons.length} button(s) all named`)
+  }
+  return {
+    ...fail(
+      "btn-name",
+      "Button Accessible Names",
+      "Accessibility",
+      "high",
+      `${missing.length} button(s) have no accessible name (no text, aria-label, or alt).`,
+      "Add visible text, aria-label, aria-labelledby, or an alt'd <img> inside the button.",
+    ),
+    evidence: missing.slice(0, 30),
+  }
+}
+
+export function checkIframeTitle($: $Type): CheckResult {
+  const iframes = $("iframe").toArray()
+  if (iframes.length === 0) {
+    return info("iframe-title", "Iframe Titles", "Accessibility", "No iframes found.")
+  }
+  const missing: string[] = []
+  iframes.forEach((el) => {
+    const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+    const title = (attribs.title || "").trim()
+    const ariaLabel = (attribs["aria-label"] || "").trim()
+    if (!title && !ariaLabel) {
+      missing.push(`[${missing.length + 1}] src="${attribs.src || "(no src)"}"`)
+    }
+  })
+  if (missing.length === 0) {
+    return pass("iframe-title", "Iframe Titles", "Accessibility", `${iframes.length} iframe(s) all titled`)
+  }
+  return {
+    ...fail(
+      "iframe-title",
+      "Iframe Titles",
+      "Accessibility",
+      "medium",
+      `${missing.length} of ${iframes.length} iframe(s) missing title/aria-label.`,
+      "Add a descriptive title attribute on every <iframe> for screen-reader users.",
+    ),
+    evidence: missing.slice(0, 20),
+  }
+}
+
+export function checkDuplicateIds($: $Type): CheckResult {
+  const counts = new Map<string, number>()
+  $("[id]").each((_i, el) => {
+    const id = ($(el as never).attr("id") || "").trim()
+    if (!id) return
+    counts.set(id, (counts.get(id) || 0) + 1)
+  })
+  const dupes = [...counts.entries()].filter(([, n]) => n > 1)
+  if (dupes.length === 0) {
+    return pass("dup-ids", "Duplicate Element IDs", "Accessibility", `${counts.size} unique id(s), no duplicates`)
+  }
+  return {
+    ...warn(
+      "dup-ids",
+      "Duplicate Element IDs",
+      "Accessibility",
+      "medium",
+      `${dupes.length} duplicate id(s) detected.`,
+      "IDs must be unique per page. Duplicate IDs break label-for, aria-labelledby, and DOM scripting.",
+    ),
+    evidence: dupes.slice(0, 30).map(([id, n], i) => `[${i + 1}] #${id} appears ${n} times`),
+  }
+}
+
+// ---------- SECURITY ADDITIONS ----------
+
+export function checkHttpsProtocol(rawUrl: string): CheckResult {
+  try {
+    const u = new URL(rawUrl)
+    if (u.protocol === "https:") {
+      return pass("https-protocol", "HTTPS Protocol", "Technical", "Served over HTTPS.")
+    }
+    return fail(
+      "https-protocol",
+      "HTTPS Protocol",
+      "Technical",
+      "critical",
+      `Page is served over ${u.protocol.replace(":", "").toUpperCase()}.`,
+      "Serve all pages over HTTPS and redirect HTTP to HTTPS at the edge.",
+    )
+  } catch {
+    return info("https-protocol", "HTTPS Protocol", "Technical", "Could not parse URL.")
+  }
+}
+
+export function checkMixedContent($: $Type, pageUrl: string): CheckResult {
+  let isHttps = false
+  try {
+    isHttps = new URL(pageUrl).protocol === "https:"
+  } catch {
+    // ignore
+  }
+  if (!isHttps) {
+    return info("mixed-content", "Mixed Content (HTTP on HTTPS)", "Technical", "Page is not HTTPS; mixed-content check skipped.")
+  }
+  const offenders: string[] = []
+  const collect = (selector: string, attr: string, kind: string) => {
+    $(selector).each((_i, el) => {
+      const v = ($(el as never).attr(attr) || "").trim()
+      if (/^http:\/\//i.test(v)) {
+        offenders.push(`[${offenders.length + 1}] <${kind}> ${attr}="${v}"`)
+      }
+    })
+  }
+  collect("script[src]", "src", "script")
+  collect("link[href]", "href", "link")
+  collect("img[src]", "src", "img")
+  collect("iframe[src]", "src", "iframe")
+  collect("video[src], audio[src], source[src]", "src", "media")
+  if (offenders.length === 0) {
+    return pass("mixed-content", "Mixed Content (HTTP on HTTPS)", "Technical", "No HTTP subresources on HTTPS page.")
+  }
+  return {
+    ...fail(
+      "mixed-content",
+      "Mixed Content (HTTP on HTTPS)",
+      "Technical",
+      "high",
+      `${offenders.length} HTTP subresource(s) on HTTPS page.`,
+      "Update every src/href to https:// (or protocol-relative). Browsers block HTTP scripts/styles on HTTPS pages.",
+    ),
+    evidence: offenders.slice(0, 30),
+  }
+}
+
+export function checkInlineEventHandlers($: $Type): CheckResult {
+  const handlers: string[] = []
+  const HANDLER_RE = /^on[a-z]+$/i
+  $("*").each((_i, el) => {
+    const attribs = (el as { attribs?: Record<string, string> }).attribs || {}
+    Object.keys(attribs).forEach((k) => {
+      if (HANDLER_RE.test(k)) {
+        const tag = (el as { name?: string }).name || "el"
+        handlers.push(`[${handlers.length + 1}] <${tag} ${k}="${(attribs[k] || "").slice(0, 80)}">`)
+      }
+    })
+  })
+  if (handlers.length === 0) {
+    return pass("inline-handlers", "Inline Event Handlers", "Technical", "No inline on* event handlers found.")
+  }
+  return {
+    ...warn(
+      "inline-handlers",
+      "Inline Event Handlers",
+      "Technical",
+      "medium",
+      `${handlers.length} inline event handler attribute(s) found.`,
+      "Move JavaScript out of HTML attributes. Inline handlers block strict CSP and complicate maintenance.",
+    ),
+    evidence: handlers.slice(0, 30),
+  }
+}
+
+export function checkSecurityHeaders(headers: Record<string, string>): CheckResult {
+  const expected: { key: string; label: string }[] = [
+    { key: "strict-transport-security", label: "Strict-Transport-Security" },
+    { key: "content-security-policy", label: "Content-Security-Policy" },
+    { key: "x-content-type-options", label: "X-Content-Type-Options" },
+    { key: "x-frame-options", label: "X-Frame-Options" },
+    { key: "referrer-policy", label: "Referrer-Policy" },
+    { key: "permissions-policy", label: "Permissions-Policy" },
+  ]
+  const present = expected.filter((e) => headers[e.key])
+  const missing = expected.filter((e) => !headers[e.key])
+  const evidence = expected.map(
+    (e, i) => `[${i + 1}] ${e.label}: ${headers[e.key] ? headers[e.key].slice(0, 200) : "(missing)"}`,
+  )
+  if (missing.length === 0) {
+    return { ...pass("sec-headers", "Security Response Headers", "Technical", "All recommended security headers present."), evidence }
+  }
+  return {
+    ...warn(
+      "sec-headers",
+      "Security Response Headers",
+      "Technical",
+      missing.some((m) => ["content-security-policy", "strict-transport-security"].includes(m.key)) ? "high" : "medium",
+      `${missing.length} of ${expected.length} recommended security headers missing.`,
+      "Configure CSP, HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, and Permissions-Policy at the CDN/edge.",
+    ),
+    details: `Present: ${present.map((p) => p.label).join(", ") || "none"}. Missing: ${missing.map((m) => m.label).join(", ")}.`,
+    evidence,
+  }
+}
+
+// ---------- SEO ADDITIONS ----------
+
+export function checkStructuredData($: $Type): CheckResult {
+  const ldNodes = $('script[type="application/ld+json"]').toArray()
+  const microdata = $("[itemscope]").length
+  if (ldNodes.length === 0 && microdata === 0) {
+    return warn(
+      "structured-data",
+      "Structured Data (JSON-LD)",
+      "SEO",
+      "medium",
+      "No JSON-LD or microdata structured data found.",
+      "Add JSON-LD (Article, Organization, BreadcrumbList, etc.) to improve rich-result eligibility.",
+    )
+  }
+  const types: string[] = []
+  ldNodes.forEach((el, i) => {
+    const raw = $(el as never).html() || ""
+    try {
+      const parsed = JSON.parse(raw)
+      const list = Array.isArray(parsed) ? parsed : [parsed]
+      list.forEach((p: unknown) => {
+        const t = (p as { ["@type"]?: unknown })["@type"]
+        if (typeof t === "string") types.push(t)
+        else if (Array.isArray(t)) types.push(...t.filter((x): x is string => typeof x === "string"))
+      })
+    } catch {
+      types.push(`[${i + 1}] (invalid JSON-LD)`)
+    }
+  })
+  return {
+    ...pass(
+      "structured-data",
+      "Structured Data (JSON-LD)",
+      "SEO",
+      `${ldNodes.length} JSON-LD block(s)${microdata ? ` + ${microdata} microdata node(s)` : ""}`,
+    ),
+    evidence: types.length ? types.map((t, i) => `[${i + 1}] @type: ${t}`) : undefined,
+  }
+}
+
+export function checkHreflang($: $Type): CheckResult {
+  const tags = $('link[rel="alternate"][hreflang]').toArray()
+  if (tags.length === 0) {
+    return info(
+      "hreflang",
+      "hreflang Alternate Links",
+      "SEO",
+      "No hreflang alternates found (only required for multi-locale sites).",
+    )
+  }
+  const evidence = tags.map((el, i) => {
+    const a = (el as { attribs?: Record<string, string> }).attribs || {}
+    return `[${i + 1}] hreflang="${a.hreflang}" → ${a.href}`
+  })
+  const hasXDefault = tags.some((el) => ((el as { attribs?: Record<string, string> }).attribs?.hreflang || "").toLowerCase() === "x-default")
+  if (!hasXDefault) {
+    return {
+      ...warn(
+        "hreflang",
+        "hreflang Alternate Links",
+        "SEO",
+        "low",
+        `${tags.length} hreflang link(s) present but no x-default fallback.`,
+        'Add <link rel="alternate" hreflang="x-default" href="..."> for users outside the listed locales.',
+      ),
+      evidence,
+    }
+  }
+  return { ...pass("hreflang", "hreflang Alternate Links", "SEO", `${tags.length} hreflang link(s) with x-default`), evidence }
+}
+
+export function checkFavicon($: $Type): CheckResult {
+  const icons = $('link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').toArray()
+  if (icons.length === 0) {
+    return warn(
+      "favicon",
+      "Favicon",
+      "SEO",
+      "low",
+      "No favicon <link> tag found.",
+      'Add <link rel="icon" href="/favicon.ico"> and an apple-touch-icon for mobile bookmarks.',
+    )
+  }
+  const evidence = icons.map((el, i) => {
+    const a = (el as { attribs?: Record<string, string> }).attribs || {}
+    return `[${i + 1}] rel="${a.rel}" sizes="${a.sizes || ""}" → ${a.href}`
+  })
+  return { ...pass("favicon", "Favicon", "SEO", `${icons.length} icon link(s) declared`), evidence }
+}
+
+// ---------- CONTENT ADDITIONS ----------
+
+export function checkWordCount($: $Type): CheckResult {
+  const text = $("body").text().replace(/\s+/g, " ").trim()
+  const words = text ? text.split(/\s+/).filter(Boolean).length : 0
+  if (words < 100) {
+    return warn(
+      "word-count",
+      "Body Word Count",
+      "Content",
+      "low",
+      `Body contains only ${words} words (thin content).`,
+      "Thin pages (under ~300 words) often underperform in search. Confirm this is intentional.",
+    )
+  }
+  if (words > 4000) {
+    return info("word-count", "Body Word Count", "Content", `Body contains ${words} words (long-form).`)
+  }
+  return pass("word-count", "Body Word Count", "Content", `Body contains ${words} words.`)
+}
+
+export function checkDuplicateHeadingText(headings: HeadingInfo[]): CheckResult {
+  if (headings.length === 0) {
+    return info("dup-headings", "Duplicate Heading Text", "Content", "No headings found.")
+  }
+  const counts = new Map<string, number>()
+  headings.forEach((h) => {
+    const key = `H${h.level}::${h.text.trim().toLowerCase()}`
+    if (!h.text.trim()) return
+    counts.set(key, (counts.get(key) || 0) + 1)
+  })
+  const dupes = [...counts.entries()].filter(([, n]) => n > 1)
+  if (dupes.length === 0) {
+    return pass("dup-headings", "Duplicate Heading Text", "Content", `${headings.length} heading(s), no duplicates`)
+  }
+  return {
+    ...warn(
+      "dup-headings",
+      "Duplicate Heading Text",
+      "Content",
+      "low",
+      `${dupes.length} heading(s) with duplicate text within the same level.`,
+      "Make heading text unique within a level so screen-reader users can distinguish sections.",
+    ),
+    evidence: dupes.slice(0, 30).map(([k, n], i) => {
+      const [level, ...rest] = k.split("::")
+      return `[${i + 1}] <${level}> "${rest.join("::")}" appears ${n} times`
+    }),
+  }
+}
+
+// ---------- ANALYTICS ----------
+
+export function checkAnalyticsTags($: $Type): CheckResult {
+  const html = $.html()
+  const detected: string[] = []
+  const probes: { name: string; re: RegExp }[] = [
+    { name: "Google Tag Manager (GTM)", re: /googletagmanager\.com\/gtm\.js|GTM-[A-Z0-9]+/i },
+    { name: "Google Analytics 4 (gtag)", re: /gtag\(['"]config['"]|googletagmanager\.com\/gtag\/js|G-[A-Z0-9]{6,}/i },
+    { name: "Universal Analytics (UA)", re: /google-analytics\.com\/analytics\.js|UA-\d+-\d+/i },
+    { name: "Adobe Launch / DTM", re: /assets\.adobedtm\.com|launch-[A-Z0-9-]+\.min\.js/i },
+    { name: "Adobe Analytics (s_code/AppMeasurement)", re: /s_code\.js|AppMeasurement\.js|s\.t\(\)|s\.tl\(/i },
+    { name: "Tealium iQ", re: /tags\.tiqcdn\.com|utag\.js/i },
+    { name: "Segment", re: /cdn\.segment\.com\/analytics\.js/i },
+    { name: "Mixpanel", re: /cdn\.mxpnl\.com\/libs\/mixpanel/i },
+    { name: "Amplitude", re: /cdn\.amplitude\.com\/libs\/amplitude/i },
+    { name: "Hotjar", re: /static\.hotjar\.com|hjid:/i },
+    { name: "Heap", re: /cdn\.heapanalytics\.com/i },
+    { name: "Facebook Pixel", re: /connect\.facebook\.net\/.*\/fbevents\.js|fbq\(['"]init['"]/i },
+    { name: "LinkedIn Insight", re: /snap\.licdn\.com\/li\.lms-analytics/i },
+    { name: "dataLayer", re: /window\.dataLayer\s*=|dataLayer\.push\(/ },
+  ]
+  probes.forEach((p) => {
+    if (p.re.test(html)) detected.push(p.name)
+  })
+  if (detected.length === 0) {
+    return warn(
+      "analytics",
+      "Analytics Tags",
+      "Technical",
+      "medium",
+      "No common analytics or tag-manager script detected.",
+      "Verify GTM / GA4 / Adobe / Tealium / etc. is firing. Missing analytics means no traffic measurement.",
+    )
+  }
+  return {
+    ...pass("analytics", "Analytics Tags", "Technical", `${detected.length} analytics tag(s) detected`),
+    evidence: detected.map((d, i) => `[${i + 1}] ${d}`),
+  }
+}
+
+// ---------- PERFORMANCE / SEO HYBRID ----------
+
+export function checkImageLazyLoading(images: ImageInfo[]): CheckResult {
+  // We don't have loading attr in ImageInfo; re-scan from $ in caller would be better.
+  // Use a lightweight heuristic: just flag if there are many images and recommend.
+  if (images.length <= 5) {
+    return pass("img-lazy", "Image Lazy Loading", "Performance", `${images.length} image(s); lazy-load not critical.`)
+  }
+  return info(
+    "img-lazy",
+    "Image Lazy Loading",
+    "Performance",
+    `${images.length} image(s) on page. Verify below-the-fold images use loading="lazy".`,
+  )
+}
+
+export function checkRenderBlockingScripts($: $Type): CheckResult {
+  const blocking: string[] = []
+  $("head script[src]").each((_i, el) => {
+    const a = (el as { attribs?: Record<string, string> }).attribs || {}
+    if (a.async === undefined && a.defer === undefined && a.type !== "module") {
+      blocking.push(`[${blocking.length + 1}] <script src="${a.src}"> (no async/defer)`)
+    }
+  })
+  if (blocking.length === 0) {
+    return pass("render-blocking", "Render-Blocking Scripts in <head>", "Performance", "All <head> scripts use async/defer/module.")
+  }
+  return {
+    ...warn(
+      "render-blocking",
+      "Render-Blocking Scripts in <head>",
+      "Performance",
+      blocking.length > 5 ? "high" : "medium",
+      `${blocking.length} render-blocking script(s) in <head>.`,
+      "Add defer or async (or move to end of body / use type=module) to avoid blocking first paint.",
+    ),
+    evidence: blocking.slice(0, 30),
+  }
+}
+
+// ---------- FUNCTIONALITY ----------
+
+export function checkBreadcrumbs($: $Type): CheckResult {
+  const ld = $('script[type="application/ld+json"]').toArray()
+  let ldBreadcrumb = false
+  ld.forEach((el) => {
+    try {
+      const parsed = JSON.parse($(el as never).html() || "")
+      const list = Array.isArray(parsed) ? parsed : [parsed]
+      list.forEach((p: unknown) => {
+        const t = (p as { ["@type"]?: unknown })["@type"]
+        if (t === "BreadcrumbList" || (Array.isArray(t) && t.includes("BreadcrumbList"))) ldBreadcrumb = true
+      })
+    } catch {
+      // ignore
+    }
+  })
+  const visualBreadcrumb =
+    $('nav[aria-label*="breadcrumb" i]').length > 0 ||
+    $('[class*="breadcrumb" i]').length > 0 ||
+    $('ol[itemtype*="BreadcrumbList" i]').length > 0
+  if (!ldBreadcrumb && !visualBreadcrumb) {
+    return info(
+      "breadcrumbs",
+      "Breadcrumbs",
+      "Functionality",
+      "No breadcrumbs detected (visual or JSON-LD).",
+    )
+  }
+  const bits: string[] = []
+  if (visualBreadcrumb) bits.push("visual breadcrumb element")
+  if (ldBreadcrumb) bits.push("BreadcrumbList JSON-LD")
+  return pass("breadcrumbs", "Breadcrumbs", "Functionality", bits.join(" + "))
+}
+
 export const ManualCheckIds = new Set(["figma", "cross-browser"])

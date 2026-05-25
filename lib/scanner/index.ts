@@ -24,6 +24,10 @@ async function fetchPage(url: string, auth?: { username: string; password: strin
       headers,
     })
     const html = await res.text()
+    const responseHeaders: Record<string, string> = {}
+    res.headers.forEach((v, k) => {
+      responseHeaders[k.toLowerCase()] = v
+    })
     return {
       html,
       status: res.status,
@@ -32,6 +36,7 @@ async function fetchPage(url: string, auth?: { username: string; password: strin
       contentType: res.headers.get("content-type"),
       fetchTimeMs: Date.now() - start,
       pageSizeBytes: html.length,
+      responseHeaders,
     }
   } finally {
     clearTimeout(t)
@@ -156,6 +161,32 @@ export async function runScan(
     C.checkGoogleIndexing($, url.toString()),
     C.checkFigmaAlignment(),
     C.checkCrossBrowser(),
+    // ----- Accessibility additions -----
+    C.checkHtmlLangAttr($),
+    C.checkSkipToMainLink($),
+    C.checkFormLabels($),
+    C.checkButtonAccessibleName($),
+    C.checkIframeTitle($),
+    C.checkDuplicateIds($),
+    // ----- Security / Technical additions -----
+    C.checkHttpsProtocol(url.toString()),
+    C.checkMixedContent($, url.toString()),
+    C.checkInlineEventHandlers($),
+    C.checkSecurityHeaders(fetched.responseHeaders || {}),
+    // ----- SEO additions -----
+    C.checkStructuredData($),
+    C.checkHreflang($),
+    C.checkFavicon($),
+    // ----- Content additions -----
+    C.checkWordCount($),
+    C.checkDuplicateHeadingText(headings),
+    // ----- Analytics -----
+    C.checkAnalyticsTags($),
+    // ----- Performance additions -----
+    C.checkImageLazyLoading(images),
+    C.checkRenderBlockingScripts($),
+    // ----- Functionality additions -----
+    C.checkBreadcrumbs($),
   ]
 
   // Summary
