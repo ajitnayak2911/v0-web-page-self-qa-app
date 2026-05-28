@@ -202,12 +202,12 @@ export async function runScan(
     } catch (err) {
       checks.push({
         id: "contact-form-submit",
-        label: "Contact Form Auto-Submit (Deep Scan)",
+        name: "Contact Form Auto-Submit (Deep Scan)",
         category: "Functionality",
         status: "warn",
         severity: "medium",
         message: `Form auto-submit failed to launch: ${(err as Error).message}`,
-        recommendation:
+        suggestion:
           "Headless Chromium could not start (likely a serverless environment limit). Try again or run the manual end-to-end test.",
       })
     }

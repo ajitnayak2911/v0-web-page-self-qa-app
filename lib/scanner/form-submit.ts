@@ -482,12 +482,12 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
 
   out.push({
     id: "contact-form-submit",
-    label: "Contact Form Auto-Submit (Deep Scan)",
+    name: "Contact Form Auto-Submit (Deep Scan)",
     category: "Functionality",
     status,
     severity,
     message,
-    recommendation,
+    suggestion: recommendation,
     evidence: baseEvidence,
   })
 
