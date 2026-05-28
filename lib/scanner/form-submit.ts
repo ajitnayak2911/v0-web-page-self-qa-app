@@ -352,14 +352,59 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
           ? `[name="${cssEscape(name)}"]`
           : `${tag}[type="${type}"] (#${i + 1})`
 
-      // Skip honeypots
-      const isHidden = await el.evaluate((e) => {
-        const s = window.getComputedStyle(e as HTMLElement)
-        return s.display === "none" || s.visibility === "hidden" || (e as HTMLElement).offsetParent === null
-      }).catch(() => false)
+      // Honeypot bypass — skip fields named after common bait
       const honeypot = HONEYPOT_HINTS.some((h) => `${name} ${id}`.toLowerCase().includes(h))
-      if (isHidden || honeypot) {
-        result.skipped.push({ selector, reason: honeypot ? "honeypot" : "hidden" })
+      if (honeypot) {
+        result.skipped.push({ selector, reason: "honeypot" })
+        continue
+      }
+
+      // Hidden fields: still fill <select> (often replaced by a custom
+      // dropdown widget like Broadridge's country picker) and real text
+      // inputs. Use direct DOM .value + change-event dispatch since
+      // Playwright won't fill or click hidden elements.
+      const isHidden = await el
+        .evaluate((e) => {
+          const s = window.getComputedStyle(e as HTMLElement)
+          return s.display === "none" || s.visibility === "hidden" || (e as HTMLElement).offsetParent === null
+        })
+        .catch(() => false)
+      if (isHidden) {
+        try {
+          if (tag === "select") {
+            const value = await el.evaluate((sel) => {
+              const s = sel as HTMLSelectElement
+              for (const o of Array.from(s.options)) {
+                if (o.value && !o.disabled) return o.value
+              }
+              return ""
+            })
+            if (value) {
+              await el.evaluate((sel, v) => {
+                const s = sel as HTMLSelectElement
+                s.value = v as string
+                s.dispatchEvent(new Event("input", { bubbles: true }))
+                s.dispatchEvent(new Event("change", { bubbles: true }))
+              }, value)
+              result.filled.push({ selector, label, type: "select", value, strategy: "hidden-select" })
+              continue
+            }
+          } else if (tag === "input" || tag === "textarea") {
+            const { value, strategy } = pickDummy({ name, id, label, type, placeholder }, opts.dummy)
+            await el.evaluate((input, v) => {
+              const i = input as HTMLInputElement | HTMLTextAreaElement
+              i.value = v as string
+              i.dispatchEvent(new Event("input", { bubbles: true }))
+              i.dispatchEvent(new Event("change", { bubbles: true }))
+            }, value)
+            result.filled.push({ selector, label, type, value, strategy: `${strategy} (hidden)` })
+            continue
+          }
+        } catch (err) {
+          result.skipped.push({ selector, reason: `hidden-fill failed: ${(err as Error).message.slice(0, 80)}` })
+          continue
+        }
+        result.skipped.push({ selector, reason: "hidden" })
         continue
       }
 
@@ -517,39 +562,6 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
 // ---------------------------------------------------------------------------
 
 export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
-  const out: CheckResult[] = []
-
-  const baseEvidence: string[] = [
-    `Start URL   : ${r.startUrl}`,
-    `End URL     : ${r.endUrl}`,
-    `Duration    : ${r.durationMs} ms`,
-    `Form source : ${r.formSource || "(none detected)"}`,
-    "",
-    `--- Filled fields (${r.filled.length}) ---`,
-    ...r.filled.map(
-      (f, i) =>
-        `[${i + 1}] ${f.selector}  label="${f.label || "(none)"}"  type=${f.type}  strategy=${f.strategy}  → "${f.value}"`,
-    ),
-  ]
-  if (r.skipped.length > 0) {
-    baseEvidence.push("", `--- Skipped fields (${r.skipped.length}) ---`, ...r.skipped.map((s, i) => `[${i + 1}] ${s.selector}  (${s.reason})`))
-  }
-  if (r.networkPosts.length > 0) {
-    baseEvidence.push("", `--- POST requests during submit (${r.networkPosts.length}) ---`, ...r.networkPosts.map((p, i) => `[${i + 1}] ${p.status} ${p.method} ${p.url}`))
-  }
-  if (r.successSignals.length > 0) {
-    baseEvidence.push("", `--- Success signals (${r.successSignals.length}) ---`, ...r.successSignals.map((s, i) => `[${i + 1}] ${s}`))
-  }
-  if (r.validationErrors.length > 0) {
-    baseEvidence.push("", `--- Validation errors detected (${r.validationErrors.length}) ---`, ...r.validationErrors.map((s, i) => `[${i + 1}] ${s}`))
-  }
-  if (r.consoleErrors.length > 0) {
-    baseEvidence.push("", `--- Browser console errors (${r.consoleErrors.length}) ---`, ...r.consoleErrors.slice(0, 5).map((s, i) => `[${i + 1}] ${s}`))
-  }
-  if (r.screenshot) {
-    baseEvidence.push("", `Post-submit screenshot captured (base64 png, ${Math.round(r.screenshot.length / 1024)} KB). Open the Excel evidence sheet or paste the data URL into a browser to view.`)
-  }
-
   let status: CheckResult["status"]
   let severity: Severity
   let message: string
@@ -562,34 +574,32 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
   } else if (!r.submitted) {
     status = "warn"
     severity = "medium"
-    message = r.error || "Form was filled but could not be submitted (no submit button or click intercepted)."
+    message = r.error || "Form was filled but could not be submitted."
     recommendation = "Verify the submit button is visible and clickable, or run the flow manually."
   } else if (r.success) {
     status = "pass"
     severity = "info"
-    message = `Form submitted successfully (${r.filled.length} field(s) filled, ${r.successSignals.length} success signal(s)).`
+    message = "Form submission successful"
   } else if (r.validationErrors.length > 0) {
     status = "fail"
     severity = "high"
-    message = `Form submission produced ${r.validationErrors.length} validation error(s) — dummy data was rejected.`
-    recommendation = "Review the listed validation errors. Update the dummy-data heuristics for any custom field types."
+    message = "Form submission failed (validation errors)"
   } else {
     status = "warn"
     severity = "medium"
-    message = "Form was submitted but no clear success signal detected (no URL change, no thank-you text)."
-    recommendation = "Confirm the form actually submitted to the backend and add a visible confirmation message for users."
+    message = "Form submitted but no confirmation detected"
   }
 
-  out.push({
-    id: "contact-form-submit",
-    name: "Contact Form Auto-Submit (Deep Scan)",
-    category: "Functionality",
-    status,
-    severity,
-    message,
-    suggestion: recommendation,
-    evidence: baseEvidence,
-  })
-
-  return out
+  return [
+    {
+      id: "contact-form-submit",
+      name: "Contact Form Auto-Submit (Deep Scan)",
+      category: "Functionality",
+      status,
+      severity,
+      message,
+      suggestion: recommendation,
+      // Intentionally no `evidence` — keep the report card to a single line.
+    },
+  ]
 }
