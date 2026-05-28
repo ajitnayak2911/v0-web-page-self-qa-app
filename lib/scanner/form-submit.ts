@@ -109,17 +109,28 @@ function pickDummy(field: { name: string; id: string; label: string; type: strin
 
 async function launchBrowser(): Promise<Browser> {
   const playwright = await import("playwright-core")
-  const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL
-  if (isLambda) {
+
+  // On Linux (Vercel Lambda OR the v0 sandbox VM) use the bundled chromium
+  // from @sparticuz/chromium so we never depend on a system install.
+  if (process.platform === "linux") {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const chromium: any = (await import("@sparticuz/chromium")).default
+    const mod: any = await import("@sparticuz/chromium")
+    const chromium = mod.default ?? mod
+    const executablePath = await chromium.executablePath()
     return playwright.chromium.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      args: [
+        ...chromium.args,
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--single-process",
+      ],
+      executablePath,
       headless: true,
     })
   }
-  // Local fallback — relies on a system Chromium being available
+
+  // macOS/Windows dev fallback (developer machine has a browser installed)
   return playwright.chromium.launch({ headless: true })
 }
 
