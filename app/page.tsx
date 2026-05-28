@@ -13,7 +13,13 @@ export default function HomePage() {
   const [report, setReport] = useState<ScanReport | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleScan(url: string, validateLinks: boolean, username?: string, password?: string) {
+  async function handleScan(
+    url: string,
+    validateLinks: boolean,
+    username?: string,
+    password?: string,
+    submitForms?: boolean,
+  ) {
     setLoading(true)
     setError(null)
     setReport(null)
@@ -21,7 +27,7 @@ export default function HomePage() {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, validateLinks, username, password }),
+        body: JSON.stringify({ url, validateLinks, username, password, submitForms }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Scan failed")

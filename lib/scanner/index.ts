@@ -2,6 +2,7 @@ import * as cheerio from "cheerio"
 import type { CheckCategory, CheckResult, ScanReport, Severity } from "./types"
 import { validateLinks } from "./links"
 import * as C from "./checks"
+import { attemptFormSubmission, submissionResultToChecks } from "./form-submit"
 
 const FETCH_TIMEOUT_MS = 15000
 
@@ -45,7 +46,7 @@ async function fetchPage(url: string, auth?: { username: string; password: strin
 
 export async function runScan(
   rawUrl: string,
-  opts?: { validateLinks?: boolean; username?: string; password?: string },
+  opts?: { validateLinks?: boolean; username?: string; password?: string; submitForms?: boolean },
 ): Promise<ScanReport> {
   const started = Date.now()
   let url: URL
@@ -188,6 +189,29 @@ export async function runScan(
     // ----- Functionality additions -----
     C.checkBreadcrumbs($),
   ]
+
+  // Opt-in headless-browser form submission (Deep Scan)
+  if (opts?.submitForms) {
+    try {
+      const sub = await attemptFormSubmission({
+        url: fetched.finalUrl || url.toString(),
+        auth,
+        timeoutMs: 30000,
+      })
+      checks.push(...submissionResultToChecks(sub))
+    } catch (err) {
+      checks.push({
+        id: "contact-form-submit",
+        label: "Contact Form Auto-Submit (Deep Scan)",
+        category: "Functionality",
+        status: "warn",
+        severity: "medium",
+        message: `Form auto-submit failed to launch: ${(err as Error).message}`,
+        recommendation:
+          "Headless Chromium could not start (likely a serverless environment limit). Try again or run the manual end-to-end test.",
+      })
+    }
+  }
 
   // Summary
   const summary = {

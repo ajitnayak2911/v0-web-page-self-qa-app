@@ -9,7 +9,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, Search, Globe, Lock, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react"
 
 interface Props {
-  onScan: (url: string, validateLinks: boolean, username?: string, password?: string) => Promise<void>
+  onScan: (
+    url: string,
+    validateLinks: boolean,
+    username?: string,
+    password?: string,
+    submitForms?: boolean,
+  ) => Promise<void>
   loading: boolean
 }
 
@@ -49,6 +55,7 @@ function looksLikeProtectedUrl(url: string): boolean {
 export function ScanForm({ onScan, loading }: Props) {
   const [url, setUrl] = useState("")
   const [validateLinks, setValidateLinks] = useState(true)
+  const [submitForms, setSubmitForms] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -71,7 +78,7 @@ export function ScanForm({ onScan, loading }: Props) {
     if (!url.trim()) return
     const u = username.trim() || undefined
     const p = password.trim() || undefined
-    onScan(url.trim(), validateLinks, u, p)
+    onScan(url.trim(), validateLinks, u, p, submitForms)
   }
 
   const isProtected = looksLikeProtectedUrl(url)
@@ -198,6 +205,28 @@ export function ScanForm({ onScan, loading }: Props) {
             <Label htmlFor="validate" className="text-sm text-muted-foreground cursor-pointer">
               Validate all links (HTTP status, redirects, broken — slower)
             </Label>
+          </div>
+
+          {/* Attempt real form submission — opt-in, destructive */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-900/50 p-3">
+            <Checkbox
+              id="submit-forms"
+              checked={submitForms}
+              onCheckedChange={(v) => setSubmitForms(!!v)}
+              disabled={loading}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <Label htmlFor="submit-forms" className="text-sm font-medium cursor-pointer">
+                Attempt real form submission (Deep Scan, headless browser)
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Launches a headless Chromium, detects the first contact-style form, auto-fills every field with safe
+                dummy data and clicks submit. <strong className="text-amber-700 dark:text-amber-400">This actually
+                posts to the target system and will create a real lead.</strong> Use only on test or staging URLs.
+                Adds ~20–40s to the scan.
+              </p>
+            </div>
           </div>
 
           {/* Quick-fill examples */}
