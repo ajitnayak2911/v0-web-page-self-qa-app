@@ -38,6 +38,7 @@ interface SubmissionResult {
   success: boolean
   startUrl: string
   endUrl: string
+  formSource?: string
   filled: FilledField[]
   skipped: { selector: string; reason: string }[]
   validationErrors: string[]
@@ -52,6 +53,11 @@ interface SubmissionResult {
 // ---------------------------------------------------------------------------
 // Dummy data generation
 // ---------------------------------------------------------------------------
+
+// Node-safe CSS attribute-value escape (the global `CSS` only exists in the browser).
+function cssEscape(value: string): string {
+  return String(value).replace(/(["\\])/g, "\\$1")
+}
 
 const DEFAULT_DUMMY = {
   firstName: "Test",
@@ -80,9 +86,9 @@ function pickDummy(field: { name: string; id: string; label: string; type: strin
   if (field.type === "number") return { value: "1", strategy: "number" }
   if (field.type === "date") return { value: "2026-01-01", strategy: "date" }
 
-  // Name-style
-  if (/first.?name|fname|given/.test(blob)) return { value: d.firstName, strategy: "first-name" }
-  if (/last.?name|lname|surname|family/.test(blob)) return { value: d.lastName, strategy: "last-name" }
+  // Name-style (incl. Broadridge name_first / name_last)
+  if (/first.?name|fname|given|name_first/.test(blob)) return { value: d.firstName, strategy: "first-name" }
+  if (/last.?name|lname|surname|family|name_last/.test(blob)) return { value: d.lastName, strategy: "last-name" }
   if (/full.?name|\bname\b/.test(blob)) return { value: d.fullName, strategy: "full-name" }
 
   // Company / role
@@ -146,7 +152,52 @@ const SUCCESS_TEXT_RE =
 const ERROR_HINT_SEL =
   '[class*="error" i], [class*="invalid" i], [aria-invalid="true"], [role="alert"], .field-error, .form-error, .help-block.error'
 
-async function pickFormHandle(page: Page) {
+type FormHandle = { locator: ReturnType<Page["locator"]>; source: string }
+
+/**
+ * Try the site-specific Broadridge selectors first (mirrors the Python reference
+ * script). If not found, open the nav-CTA "Contact us" modal trigger and wait
+ * for the modal form. Falls back to a generic scorer over all <form> elements.
+ */
+async function pickFormHandle(page: Page): Promise<FormHandle | null> {
+  // 1) Broadridge: bottom-of-page contact form
+  try {
+    const bottom = page.locator("form.contact-us__form[data-tracker-identifier='Page bottom form']")
+    if ((await bottom.count()) > 0) {
+      return { locator: bottom.first(), source: "broadridge-bottom" }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2) Broadridge: any contact-us form already in the DOM
+  try {
+    const cu = page.locator("form.contact-us__form")
+    if ((await cu.count()) > 0) {
+      return { locator: cu.first(), source: "broadridge-contact-us" }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3) Broadridge: nav-CTA modal trigger → opens contact-us modal
+  try {
+    const modalTrigger = page.locator("div.nav-cta >> button.modal-trigger").first()
+    if (await modalTrigger.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await modalTrigger.click({ timeout: 3000 }).catch(() => {})
+      const modalForm = page.locator("form.contact-us__form")
+      try {
+        await modalForm.first().waitFor({ state: "visible", timeout: 8000 })
+        return { locator: modalForm.first(), source: "broadridge-modal" }
+      } catch {
+        // fall through
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4) Generic scorer (any site)
   const forms = page.locator("form")
   const count = await forms.count()
   if (count === 0) return null
@@ -164,7 +215,6 @@ async function pickFormHandle(page: Page) {
     if (/first.?name|last.?name|full.?name|name=/.test(blob)) score += 1
     if (/phone|telephone/.test(blob)) score += 1
     if (/company|organi[sz]ation/.test(blob)) score += 1
-    // Penalize search / login / newsletter-only forms
     if (/^search$|role="search"|search\?q=/.test(blob)) score -= 5
     if (/login|sign in|password/.test(blob)) score -= 5
     if (/subscribe|newsletter/.test(blob) && !/contact|message/.test(blob)) score -= 2
@@ -174,7 +224,7 @@ async function pickFormHandle(page: Page) {
     }
   }
   if (best < 0 || bestScore <= 0) return null
-  return forms.nth(best)
+  return { locator: forms.nth(best), source: `generic-form-#${best + 1}` }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,11 +300,21 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
       }
     }
 
-    const form = await pickFormHandle(page)
-    if (!form) {
+    // Trigger any lazy-loaded forms (Broadridge bottom form is below the fold)
+    try {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+      await page.waitForTimeout(1200)
+    } catch {
+      // ignore
+    }
+
+    const handle = await pickFormHandle(page)
+    if (!handle) {
       result.error = "No contact-like form detected on the page."
       return result
     }
+    const form = handle.locator
+    result.formSource = handle.source
 
     try {
       await form.scrollIntoViewIfNeeded({ timeout: 2000 })
@@ -279,9 +339,18 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
       const ariaLabel = (await el.getAttribute("aria-label").catch(() => "")) || ""
       let label = ariaLabel
       if (!label && id) {
-        label = (await page.locator(`label[for="${CSS.escape(id)}"]`).first().innerText().catch(() => "")) || ""
+        label =
+          (await page
+            .locator(`label[for="${cssEscape(id)}"]`)
+            .first()
+            .innerText()
+            .catch(() => "")) || ""
       }
-      const selector = id ? `#${id}` : name ? `[name="${name}"]` : `${tag}[type="${type}"] (#${i + 1})`
+      const selector = id
+        ? `#${id}`
+        : name
+          ? `[name="${cssEscape(name)}"]`
+          : `${tag}[type="${type}"] (#${i + 1})`
 
       // Skip honeypots
       const isHidden = await el.evaluate((e) => {
@@ -347,7 +416,16 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
 
     // ---- Submit ----
     const submitBtn = form
-      .locator('button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Send")')
+      .locator(
+        [
+          "button.contact-us__form-button[type='submit']",
+          'button[type="submit"]',
+          'input[type="submit"]',
+          'button:has-text("Submit")',
+          'button:has-text("Send")',
+          'button:has-text("Request")',
+        ].join(", "),
+      )
       .first()
     const startUrl = page.url()
     result.startUrl = startUrl
@@ -374,6 +452,16 @@ export async function attemptFormSubmission(opts: FormSubmitOptions): Promise<Su
     }
     if (/thank|success|received|confirmation|submitted/i.test(result.endUrl)) {
       result.successSignals.push(`URL contains success keyword: ${result.endUrl}`)
+    }
+
+    // Site-specific confirmation block (Broadridge contact-us form)
+    try {
+      const successBlock = page.locator("div.contact-us__success").first()
+      await successBlock.waitFor({ state: "visible", timeout: 5000 })
+      const txt = (await successBlock.innerText().catch(() => "")).trim().replace(/\s+/g, " ")
+      if (txt) result.successSignals.push(`Confirmation block: "${txt.slice(0, 160)}"`)
+    } catch {
+      // not present; rely on generic detection
     }
 
     const bodyText = await page.locator("body").innerText().catch(() => "")
@@ -432,9 +520,10 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
   const out: CheckResult[] = []
 
   const baseEvidence: string[] = [
-    `Start URL : ${r.startUrl}`,
-    `End URL   : ${r.endUrl}`,
-    `Duration  : ${r.durationMs} ms`,
+    `Start URL   : ${r.startUrl}`,
+    `End URL     : ${r.endUrl}`,
+    `Duration    : ${r.durationMs} ms`,
+    `Form source : ${r.formSource || "(none detected)"}`,
     "",
     `--- Filled fields (${r.filled.length}) ---`,
     ...r.filled.map(
