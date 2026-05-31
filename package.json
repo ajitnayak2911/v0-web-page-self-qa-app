@@ -1,7 +1,15 @@
 {
-  "name": "my-project",
-  "version": "0.1.0",
+  "name": "web-page-self-qa-app",
+  "version": "1.0.0",
+  "description": "An intelligent web page self-assessment and Q&A application",
+  "author": "Ajit Nayak",
+  "license": "MIT",
   "private": true,
+  "homepage": "https://v0-web-page-self-qa-app.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ajitnayak2911/v0-web-page-self-qa-app.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
