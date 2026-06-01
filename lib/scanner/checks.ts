@@ -1142,15 +1142,17 @@ export function checkImageAlt(images: ImageInfo[]): CheckResult {
     }
   }
   
-  return fail(
-    "img-alt",
-    "Image Alt Text",
-    "Accessibility",
-    "high",
-    `${missing.length}/${auditable.length} auditable image(s) missing alt attribute`,
-    "Add descriptive alt text to every image (use alt=\"\" for decorative).",
+  return {
+    ...fail(
+      "img-alt",
+      "Image Alt Text",
+      "Accessibility",
+      "high",
+      `${missing.length}/${auditable.length} auditable image(s) missing alt attribute`,
+      "Add descriptive alt text to every image (use alt=\"\" for decorative).",
+    ),
     evidence,
-  )
+  }
 }
 
 // ---------- CONTENT ----------
