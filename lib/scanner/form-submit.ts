@@ -566,6 +566,7 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
   let severity: Severity
   let message: string
   let recommendation: string | undefined
+  let evidence: string[] = []
 
   if (!r.attempted) {
     status = "info"
@@ -576,18 +577,46 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
     severity = "medium"
     message = r.error || "Form was filled but could not be submitted."
     recommendation = "Verify the submit button is visible and clickable, or run the flow manually."
+    evidence = [`Form source: ${r.formSource || "(unknown)"}`, `Fields attempted: ${r.filled.length}`]
   } else if (r.success) {
     status = "pass"
     severity = "info"
     message = "Form submission successful"
+    evidence = [
+      `Form source: ${r.formSource || "(unknown)"}`,
+      `Duration: ${r.durationMs} ms`,
+      `URL before: ${r.startUrl}`,
+      `URL after: ${r.endUrl}`,
+      "",
+      `--- Fields filled (${r.filled.length}) ---`,
+      ...r.filled.map((f) => `• ${f.label || f.selector}: "${f.value}"`),
+    ]
+    if (r.successSignals.length > 0) {
+      evidence.push("", `--- Success indicators (${r.successSignals.length}) ---`, ...r.successSignals.map((s) => `✓ ${s}`))
+    }
   } else if (r.validationErrors.length > 0) {
     status = "fail"
     severity = "high"
     message = "Form submission failed (validation errors)"
+    evidence = [
+      `Form source: ${r.formSource || "(unknown)"}`,
+      `Fields filled: ${r.filled.length}`,
+      "",
+      `--- Validation errors (${r.validationErrors.length}) ---`,
+      ...r.validationErrors.slice(0, 10).map((e) => `• ${e}`),
+    ]
   } else {
     status = "warn"
     severity = "medium"
     message = "Form submitted but no confirmation detected"
+    evidence = [
+      `Form source: ${r.formSource || "(unknown)"}`,
+      `Fields filled: ${r.filled.length}`,
+      `Duration: ${r.durationMs} ms`,
+      "",
+      `--- Fields that were filled ---`,
+      ...r.filled.map((f) => `• ${f.label || f.selector}: "${f.value}"`),
+    ]
   }
 
   return [
@@ -599,7 +628,7 @@ export function submissionResultToChecks(r: SubmissionResult): CheckResult[] {
       severity,
       message,
       suggestion: recommendation,
-      // Intentionally no `evidence` — keep the report card to a single line.
+      evidence,
     },
   ]
 }
