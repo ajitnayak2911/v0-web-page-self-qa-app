@@ -1092,34 +1092,64 @@ export function extractImages($: $Type, baseUrl: URL): ImageInfo[] {
 export function checkImageAlt(images: ImageInfo[]): CheckResult {
   if (images.length === 0) return info("img-alt", "Image Alt Text", "Accessibility", "No images on page.")
   
-  // Filter out decorative images (role="presentation")
+  // Separate decorative from auditable
+  const decorative = images.filter((i) => i.role === "presentation")
   const auditable = images.filter((i) => i.role !== "presentation")
+  const withAlt = auditable.filter((i) => i.hasAlt)
   const missing = auditable.filter((i) => !i.hasAlt)
   
-  if (auditable.length === 0) {
-    return info(
-      "img-alt",
-      "Image Alt Text",
-      "Accessibility",
-      `All ${images.length} image(s) are decorative (role="presentation"); alt text not required.`,
-    )
+  // Build comprehensive evidence showing all categories
+  const evidence: string[] = [
+    `Total images found: ${images.length}`,
+    `  • Decorative (role="presentation"): ${decorative.length}`,
+    `  • Auditable (non-decorative): ${auditable.length}`,
+    `    ◦ With alt attribute: ${withAlt.length}`,
+    `    ◦ Missing alt attribute: ${missing.length}`,
+    "",
+  ]
+  
+  // Add decorative images list
+  if (decorative.length > 0) {
+    evidence.push(`--- Decorative images (${decorative.length}) ---`)
+    evidence.push(...decorative.slice(0, 50).map((i) => `${i.src} [decorative, no alt needed]`))
+    evidence.push("")
   }
   
-  if (missing.length === 0)
+  // Add auditable images with alt
+  if (withAlt.length > 0) {
+    evidence.push(`--- Auditable images with alt (${withAlt.length}) ---`)
+    evidence.push(...withAlt.slice(0, 50).map((i) => `${i.src} — alt="${i.alt ?? ""}"`))
+    evidence.push("")
+  }
+  
+  // Add auditable images missing alt
+  if (missing.length > 0) {
+    evidence.push(`--- Auditable images missing alt (${missing.length}) ---`)
+    evidence.push(...missing.slice(0, 50).map((i) => `${i.src}`))
+  }
+  
+  if (auditable.length === 0) {
+    return {
+      ...info("img-alt", "Image Alt Text", "Accessibility", `All ${images.length} image(s) are decorative; alt text not required.`),
+      evidence,
+    }
+  }
+  
+  if (missing.length === 0) {
     return {
       ...pass("img-alt", "Image Alt Text", "Accessibility", `All ${auditable.length} auditable image(s) have alt attributes`),
-      evidence: auditable.slice(0, 100).map((i) => `${i.src} — alt="${i.alt ?? ""}"`),
+      evidence,
     }
+  }
   
   return fail(
     "img-alt",
     "Image Alt Text",
     "Accessibility",
     "high",
-    `${missing.length}/${auditable.length} image(s) missing alt attribute${images.length > auditable.length ? ` (${images.length - auditable.length} decorative skipped)` : ""}`,
+    `${missing.length}/${auditable.length} auditable image(s) missing alt attribute`,
     "Add descriptive alt text to every image (use alt=\"\" for decorative).",
-    undefined,
-    missing.slice(0, 10).map((i) => i.src),
+    evidence,
   )
 }
 
