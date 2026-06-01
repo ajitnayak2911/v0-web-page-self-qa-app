@@ -1077,31 +1077,46 @@ export function extractImages($: $Type, baseUrl: URL): ImageInfo[] {
       resolved = new URL(src, baseUrl).toString()
     } catch {}
     const alt = $(el).attr("alt")
-    imgs.push({
-      src: resolved,
-      alt: alt ?? null,
-      hasAlt: alt !== undefined,
-      width: $(el).attr("width"),
-      height: $(el).attr("height"),
-    })
+  imgs.push({
+    src: resolved,
+    alt: alt ?? null,
+    hasAlt: alt !== undefined,
+    width: $(el).attr("width"),
+    height: $(el).attr("height"),
+    role: $(el).attr("role"),
+  })
   })
   return imgs
 }
 
 export function checkImageAlt(images: ImageInfo[]): CheckResult {
   if (images.length === 0) return info("img-alt", "Image Alt Text", "Accessibility", "No images on page.")
-  const missing = images.filter((i) => !i.hasAlt)
+  
+  // Filter out decorative images (role="presentation")
+  const auditable = images.filter((i) => i.role !== "presentation")
+  const missing = auditable.filter((i) => !i.hasAlt)
+  
+  if (auditable.length === 0) {
+    return info(
+      "img-alt",
+      "Image Alt Text",
+      "Accessibility",
+      `All ${images.length} image(s) are decorative (role="presentation"); alt text not required.`,
+    )
+  }
+  
   if (missing.length === 0)
     return {
-      ...pass("img-alt", "Image Alt Text", "Accessibility", `All ${images.length} images have alt attributes`),
-      evidence: images.slice(0, 100).map((i) => `${i.src} — alt="${i.alt ?? ""}"`),
+      ...pass("img-alt", "Image Alt Text", "Accessibility", `All ${auditable.length} auditable image(s) have alt attributes`),
+      evidence: auditable.slice(0, 100).map((i) => `${i.src} — alt="${i.alt ?? ""}"`),
     }
+  
   return fail(
     "img-alt",
     "Image Alt Text",
     "Accessibility",
     "high",
-    `${missing.length}/${images.length} images missing alt attribute`,
+    `${missing.length}/${auditable.length} image(s) missing alt attribute${images.length > auditable.length ? ` (${images.length - auditable.length} decorative skipped)` : ""}`,
     "Add descriptive alt text to every image (use alt=\"\" for decorative).",
     undefined,
     missing.slice(0, 10).map((i) => i.src),

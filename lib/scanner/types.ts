@@ -46,6 +46,7 @@ export interface ImageInfo {
   hasAlt: boolean
   width?: string
   height?: string
+  role?: string
 }
 
 export interface HeadingInfo {
