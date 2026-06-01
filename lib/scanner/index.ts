@@ -135,8 +135,6 @@ export async function runScan(
     C.checkLinkBehaviorAudit($, baseUrl, links),
     C.checkBrokenLinks(links),
     C.checkRedirects(links),
-    C.checkExternalNewTab(links),
-    C.checkInternalSameTab(links),
     C.checkPdfsNewTab(links),
     C.checkGatedPdfPath(links),
     C.checkLinkRelSecurity(links),
